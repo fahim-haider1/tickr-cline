@@ -1,3 +1,4 @@
+// src/app/layout.tsx
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import {
@@ -6,8 +7,9 @@ import {
   SignUpButton,
   SignedIn,
   SignedOut,
-  UserButton,
 } from '@clerk/nextjs'
+import { UserSync } from '@/components/UserSync'
+import { ClientLayout } from './ClientLayout'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -26,13 +28,13 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={inter.className}>
-          <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container flex h-14 items-center">
-              <div className="mr-4 flex">
-                <span className="font-bold text-primary">✓ Tickr</span>
-              </div>
-              <div className="flex flex-1 items-center justify-end space-x-2">
-                <SignedOut>
+          <SignedOut>
+            <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+              <div className="container flex h-14 items-center">
+                <div className="mr-4 flex">
+                  <span className="font-bold text-primary">✓ Tickr</span>
+                </div>
+                <div className="flex flex-1 items-center justify-end space-x-2">
                   <SignInButton mode="modal">
                     <button className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none ring-offset-background border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 py-2 px-4">
                       Sign In
@@ -43,14 +45,16 @@ export default function RootLayout({
                       Sign Up
                     </button>
                   </SignUpButton>
-                </SignedOut>
-                <SignedIn>
-                  <UserButton />
-                </SignedIn>
+                </div>
               </div>
-            </div>
-          </header>
-          {children}
+            </header>
+            {children}
+          </SignedOut>
+
+          <SignedIn>
+            <UserSync />
+            <ClientLayout>{children}</ClientLayout>
+          </SignedIn>
         </body>
       </html>
     </ClerkProvider>

@@ -1,31 +1,24 @@
-import { auth } from '@clerk/nextjs/server'
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { z } from 'zod'
+import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from 'next/server';
+import { currentUser } from '@clerk/nextjs/server';
 
-const createWorkspaceSchema = z.object({
-  name: z.string().min(1, 'Name is required').max(50, 'Name must be less than 50 characters'),
-  description: z.string().optional(),
-})
-
-// GET /api/workspaces - Get user's workspaces
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth()
+    const user = await currentUser();
     
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const workspaces = await prisma.workspace.findMany({
       where: {
-        OR: [
-          { ownerId: userId },
-          { members: { some: { userId } } }
-        ]
+        members: {
+          some: {
+            userId: user.id
+          }
+        }
       },
       include: {
-        owner: true,
         members: {
           include: {
             user: true
@@ -33,77 +26,96 @@ export async function GET() {
         },
         columns: {
           include: {
-            tasks: true
+            tasks: {
+              include: {
+                assignee: true,
+                subtasks: true
+              },
+              orderBy: {
+                order: 'asc'
+              }
+            }
+          },
+          orderBy: {
+            order: 'asc'
           }
         }
-      },
-      orderBy: {
-        createdAt: 'asc'
       }
-    })
+    });
 
-    return NextResponse.json(workspaces)
+    return NextResponse.json(workspaces);
   } catch (error) {
-    console.error('Error fetching workspaces:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Error fetching workspaces:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' }, 
+      { status: 500 }
+    );
   }
 }
 
-// POST /api/workspaces - Create new workspace
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth()
+    const user = await currentUser();
     
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json()
-    const { name, description } = createWorkspaceSchema.parse(body)
+    const { name, description } = await request.json();
 
-    // Ensure user exists in our database
-    await prisma.user.upsert({
-      where: { id: userId },
-      update: {},
-      create: {
-        id: userId,
-        email: '', // Will be updated from Clerk webhook later
+    // Check if user has reached workspace limit (optional)
+    const userWorkspaces = await prisma.workspace.count({
+      where: {
+        members: {
+          some: {
+            userId: user.id
+          }
+        }
       }
-    })
+    });
+
+    if (userWorkspaces >= 10) { // You can adjust this limit
+      return NextResponse.json(
+        { error: 'Workspace limit reached' }, 
+        { status: 400 }
+      );
+    }
 
     const workspace = await prisma.workspace.create({
       data: {
         name,
         description,
-        ownerId: userId,
+        ownerId: user.id,
+        isPersonal: false,
         columns: {
           create: [
-            { name: 'To do', order: 0 },
-            { name: 'Done', order: 1 },
+            { name: 'Todo', order: 1 },
+            { name: 'Done', order: 2 }
           ]
+        },
+        members: {
+          create: {
+            userId: user.id,
+            role: 'ADMIN'
+          }
         }
       },
       include: {
-        owner: true,
         members: {
           include: {
             user: true
           }
         },
-        columns: {
-          include: {
-            tasks: true
-          }
-        }
+        columns: true
       }
-    })
+    });
 
-    return NextResponse.json(workspace, { status: 201 })
+    return NextResponse.json(workspace);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 })
-    }
-    console.error('Error creating workspace:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Error creating workspace:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' }, 
+      { status: 500 }
+    );
   }
 }

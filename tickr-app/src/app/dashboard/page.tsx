@@ -4,33 +4,146 @@ import { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { redirect } from 'next/navigation'
 import { WorkspaceSelector } from '@/components/workspace-selector'
-import { TeamSidebar } from '@/components/team-sidebar'
+import { TeamMembersCard } from '@/components/TeamMembersCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Plus, Settings, BarChart3 } from 'lucide-react'
+
+interface WorkspaceMember {
+  id: string
+  userId: string
+  workspaceId: string
+  role: 'ADMIN' | 'MEMBER' | 'VIEWER'
+  joinedAt: Date
+  user: {
+    id: string
+    email: string
+    name: string | null
+    image: string | null
+    createdAt: Date
+    updatedAt: Date
+  }
+}
 
 interface Workspace {
   id: string
   name: string
   description: string | null
   ownerId: string
+  isPersonal: boolean
   createdAt: Date
   updatedAt: Date
-  members: {
-    id: string
-    userId: string
-    role: 'ADMIN' | 'MEMBER' | 'VIEWER'
-    user: {
-      id: string
-      email: string
-      name: string | null
-    }
-  }[]
+  members: WorkspaceMember[]
+  columns: any[]
 }
 
 export default function Dashboard() {
   const { user, isLoaded } = useUser()
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(null)
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (user) {
+      fetchWorkspaces()
+    }
+  }, [user])
+
+  const fetchWorkspaces = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await fetch('/api/workspaces')
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch workspaces: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      setWorkspaces(data)
+      
+      if (data.length > 0) {
+        setSelectedWorkspace(data[0])
+      }
+    } catch (error) {
+      console.error('Error fetching workspaces:', error)
+      setError(error instanceof Error ? error.message : 'Failed to load workspaces')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleMemberAdd = async (email: string, role: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
+    if (!selectedWorkspace) throw new Error('No workspace selected')
+    
+    try {
+      const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, role }),
+      })
+      
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to add member')
+      }
+      
+      // Refresh workspaces to get updated data
+      fetchWorkspaces()
+      return data
+    } catch (error) {
+      console.error('Error adding member:', error)
+      throw error
+    }
+  }
+
+  const handleMemberRemove = async (memberId: string) => {
+    if (!selectedWorkspace) throw new Error('No workspace selected')
+    
+    try {
+      const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members/${memberId}`, {
+        method: 'DELETE',
+      })
+      
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to remove member')
+      }
+      
+      fetchWorkspaces()
+      return data
+    } catch (error) {
+      console.error('Error removing member:', error)
+      throw error
+    }
+  }
+
+  const handleRoleChange = async (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
+    if (!selectedWorkspace) throw new Error('No workspace selected')
+    
+    try {
+      const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members/${memberId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      })
+      
+      const data = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to change role')
+      }
+      
+      fetchWorkspaces()
+      return data
+    } catch (error) {
+      console.error('Error changing role:', error)
+      throw error
+    }
+  }
 
   if (!isLoaded) {
     return (
@@ -59,9 +172,24 @@ export default function Dashboard() {
         </p>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-100 border border-red-300 text-red-700 rounded-md">
+          <div className="flex items-center justify-between">
+            <span>{error}</span>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-800 hover:text-red-900"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-6">
         {/* Left Sidebar - Workspaces */}
-        <div className="space-y-4">
+        <div className="w-64 flex-shrink-0">
           <WorkspaceSelector
             onWorkspaceSelect={setSelectedWorkspace}
             selectedWorkspaceId={selectedWorkspace?.id}
@@ -101,8 +229,8 @@ export default function Dashboard() {
                     <CardTitle className="text-lg">Columns</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold">3</div>
-                    <p className="text-sm text-muted-foreground">To Do, In Progress, Done</p>
+                    <div className="text-3xl font-bold">{selectedWorkspace.columns?.length || 2}</div>
+                    <p className="text-sm text-muted-foreground">Including Todo & Done</p>
                   </CardContent>
                 </Card>
 
@@ -111,8 +239,10 @@ export default function Dashboard() {
                     <CardTitle className="text-lg">Tasks</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold">0</div>
-                    <p className="text-sm text-muted-foreground">Ready to get started</p>
+                    <div className="text-3xl font-bold">
+                      {selectedWorkspace.columns?.reduce((total, column) => total + (column.tasks?.length || 0), 0) || 0}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Across all columns</p>
                   </CardContent>
                 </Card>
 
@@ -121,8 +251,10 @@ export default function Dashboard() {
                     <CardTitle className="text-lg">Team Members</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold">{selectedWorkspace.members.length + 1}</div>
-                    <p className="text-sm text-muted-foreground">Including you</p>
+                    <div className="text-3xl font-bold">{selectedWorkspace.members.length}</div>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedWorkspace.members.length}/5 members
+                    </p>
                   </CardContent>
                 </Card>
               </div>
@@ -191,8 +323,12 @@ export default function Dashboard() {
           ) : (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <h3 className="text-lg font-semibold mb-2">Select a workspace</h3>
-                <p className="text-muted-foreground">Choose a workspace from the sidebar to get started</p>
+                <h3 className="text-lg font-semibold mb-2">
+                  {loading ? 'Loading workspaces...' : 'Select a workspace'}
+                </h3>
+                <p className="text-muted-foreground">
+                  {loading ? 'Please wait while we load your workspaces' : 'Choose a workspace from the sidebar to get started'}
+                </p>
               </div>
             </div>
           )}
@@ -200,12 +336,15 @@ export default function Dashboard() {
 
         {/* Right Sidebar - Team Management */}
         {selectedWorkspace && (
-          <div>
-            <TeamSidebar
+          <div className="w-80 flex-shrink-0">
+            <TeamMembersCard
+              members={selectedWorkspace.members}
               workspaceId={selectedWorkspace.id}
               currentUserId={user.id}
-              isOwner={isOwner}
               isAdmin={isAdmin}
+              onMemberAdd={handleMemberAdd}
+              onMemberRemove={handleMemberRemove}
+              onRoleChange={handleRoleChange}
             />
           </div>
         )}

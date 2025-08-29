@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, X, User, Crown, Shield, Eye } from 'lucide-react';
+import { Plus, X, User, Shield, Eye, Crown, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface TeamMember {
   id: string;
@@ -29,6 +30,57 @@ interface TeamMembersCardProps {
   onRoleChange: (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER') => Promise<void>;
 }
 
+// Utility functions for role-based permissions
+const canPerformAction = (currentUserRole: string, targetUserRole: string, action: string): boolean => {
+  const roleHierarchy = { 'VIEWER': 0, 'MEMBER': 1, 'ADMIN': 2 };
+  
+  switch (action) {
+    case 'add_member':
+      return currentUserRole === 'ADMIN';
+    case 'remove_member':
+      return currentUserRole === 'ADMIN' && targetUserRole !== 'ADMIN';
+    case 'change_role':
+      return currentUserRole === 'ADMIN';
+    case 'delete_task':
+      return currentUserRole === 'ADMIN' || currentUserRole === 'MEMBER';
+    case 'view_only':
+      return currentUserRole === 'VIEWER';
+    default:
+      return false;
+  }
+};
+
+const getRolePermissions = (role: string) => {
+  switch (role) {
+    case 'ADMIN':
+      return 'Full access: Add/remove members, manage roles, create/edit/delete tasks';
+    case 'MEMBER':
+      return 'Can view, create, edit, and delete tasks';
+    case 'VIEWER':
+      return 'View only access - cannot modify anything';
+    default:
+      return '';
+  }
+};
+
+const getRoleIcon = (role: string) => {
+  switch (role) {
+    case 'ADMIN': return <Shield className="h-3 w-3" />;
+    case 'MEMBER': return <User className="h-3 w-3" />;
+    case 'VIEWER': return <Eye className="h-3 w-3" />;
+    default: return <User className="h-3 w-3" />;
+  }
+};
+
+const getRoleColor = (role: string) => {
+  switch (role) {
+    case 'ADMIN': return 'bg-red-100 text-red-800 border-red-200';
+    case 'MEMBER': return 'bg-blue-100 text-blue-800 border-blue-200';
+    case 'VIEWER': return 'bg-gray-100 text-gray-800 border-gray-200';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+};
+
 export function TeamMembersCard({
   members,
   workspaceId,
@@ -50,6 +102,11 @@ export function TeamMembersCard({
   const adminCount = members.filter(m => m.role === 'ADMIN').length;
 
   const handleAddMember = async () => {
+    if (!isAdmin) {
+      setError('Only admins can add members');
+      return;
+    }
+
     if (!newMemberEmail.trim() || !canAddMoreMembers) return;
 
     setIsAdding(true);
@@ -68,7 +125,17 @@ export function TeamMembersCard({
     }
   };
 
-  const handleRemoveMember = async (memberId: string) => {
+  const handleRemoveMember = async (memberId: string, memberRole: string) => {
+    if (!isAdmin) {
+      setError('Only admins can remove members');
+      return;
+    }
+
+    if (memberRole === 'ADMIN') {
+      setError('Cannot remove other admins');
+      return;
+    }
+
     setIsRemoving(memberId);
     setError(null);
     
@@ -82,7 +149,17 @@ export function TeamMembersCard({
     }
   };
 
-  const handleChangeRole = async (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
+  const handleChangeRole = async (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER', currentRole: string) => {
+    if (!isAdmin) {
+      setError('Only admins can change roles');
+      return;
+    }
+
+    if (currentRole === 'ADMIN' && newRole !== 'ADMIN') {
+      setError('Cannot demote other admins');
+      return;
+    }
+
     setIsChangingRole(memberId);
     setError(null);
     
@@ -96,29 +173,23 @@ export function TeamMembersCard({
     }
   };
 
-  const getRoleIcon = (role: string) => {
-    switch (role) {
-      case 'ADMIN': return <Shield className="h-3 w-3" />;
-      case 'MEMBER': return <User className="h-3 w-3" />;
-      case 'VIEWER': return <Eye className="h-3 w-3" />;
-      default: return <User className="h-3 w-3" />;
-    }
-  };
-
-  const getRoleColor = (role: string) => {
-    switch (role) {
-      case 'ADMIN': return 'bg-red-100 text-red-800';
-      case 'MEMBER': return 'bg-blue-100 text-blue-800';
-      case 'VIEWER': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">Team Members</CardTitle>
+          <CardTitle className="text-lg flex items-center gap-2">
+            Team Members
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger>
+                  <Info className="h-4 w-4 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Workspace roles determine what actions members can perform</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </CardTitle>
           <div className="text-sm text-muted-foreground">
             {members.length}/5 members
           </div>
@@ -128,14 +199,36 @@ export function TeamMembersCard({
         <div className="space-y-3">
           {/* Error Message */}
           {error && (
-            <div className="p-2 bg-red-100 text-red-700 text-sm rounded-md">
+            <div className="p-2 bg-red-100 text-red-700 text-sm rounded-md border border-red-200">
               {error}
             </div>
           )}
 
+          {/* Role Legend */}
+          <div className="grid grid-cols-3 gap-2 text-xs text-center mb-4">
+            <div className={`p-2 rounded-md ${getRoleColor('ADMIN')} border`}>
+              <div className="flex items-center justify-center gap-1">
+                {getRoleIcon('ADMIN')}
+                <span>Admin</span>
+              </div>
+            </div>
+            <div className={`p-2 rounded-md ${getRoleColor('MEMBER')} border`}>
+              <div className="flex items-center justify-center gap-1">
+                {getRoleIcon('MEMBER')}
+                <span>Member</span>
+              </div>
+            </div>
+            <div className={`p-2 rounded-md ${getRoleColor('VIEWER')} border`}>
+              <div className="flex items-center justify-center gap-1">
+                {getRoleIcon('VIEWER')}
+                <span>Viewer</span>
+              </div>
+            </div>
+          </div>
+
           {/* Members List */}
           {members.map((member) => (
-            <div key={member.id} className="flex items-center justify-between p-2 bg-muted/50 rounded-md">
+            <div key={member.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-md border">
               <div className="flex items-center space-x-3">
                 <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
                   {member.user.image ? (
@@ -149,10 +242,13 @@ export function TeamMembersCard({
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
+                  <p className="text-sm font-medium truncate flex items-center gap-2">
                     {member.user.name || member.user.email}
                     {member.userId === currentUserId && (
-                      <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                      <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-full">You</span>
+                    )}
+                    {member.role === 'ADMIN' && (
+                      <Crown className="h-3 w-3 text-yellow-600" />
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground truncate">{member.user.email}</p>
@@ -160,40 +256,51 @@ export function TeamMembersCard({
               </div>
               
               <div className="flex items-center space-x-2">
-                {isAdmin && member.userId !== currentUserId ? (
-                  <select
-                    value={member.role}
-                    onChange={(e) => handleChangeRole(member.id, e.target.value as 'ADMIN' | 'MEMBER' | 'VIEWER')}
-                    disabled={isChangingRole === member.id}
-                    className="text-xs border rounded px-2 py-1 bg-background"
-                  >
-                    <option value="MEMBER">Member</option>
-                    <option value="ADMIN">Admin</option>
-                    <option value="VIEWER">Viewer</option>
-                  </select>
-                ) : (
-                  <Badge variant="outline" className={getRoleColor(member.role)}>
-                    <div className="flex items-center space-x-1">
-                      {getRoleIcon(member.role)}
-                      <span className="text-xs">{member.role}</span>
-                    </div>
-                  </Badge>
-                )}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Badge variant="outline" className={getRoleColor(member.role)}>
+                        <div className="flex items-center space-x-1">
+                          {getRoleIcon(member.role)}
+                          <span className="text-xs">{member.role}</span>
+                        </div>
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs">{getRolePermissions(member.role)}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 
                 {isAdmin && member.userId !== currentUserId && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => handleRemoveMember(member.id)}
-                    disabled={isRemoving === member.id}
-                  >
-                    {isRemoving === member.id ? (
-                      <div className="animate-spin h-3 w-3 border-b-2 border-current"></div>
-                    ) : (
-                      <X className="h-3 w-3" />
-                    )}
-                  </Button>
+                  <div className="flex items-center space-x-1">
+                    {isAdmin ? (
+                      <select
+                        value={member.role}
+                        onChange={(e) => handleChangeRole(member.id, e.target.value as 'ADMIN' | 'MEMBER' | 'VIEWER', member.role)}
+                        disabled={isChangingRole === member.id || member.role === 'ADMIN'}
+                        className="text-xs border rounded px-2 py-1 bg-background"
+                      >
+                        <option value="MEMBER">Member</option>
+                        <option value="ADMIN">Admin</option>
+                        <option value="VIEWER">Viewer</option>
+                      </select>
+                    ) : null}
+                    
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => handleRemoveMember(member.id, member.role)}
+                      disabled={isRemoving === member.id || member.role === 'ADMIN'}
+                    >
+                      {isRemoving === member.id ? (
+                        <div className="animate-spin h-3 w-3 border-b-2 border-current"></div>
+                      ) : (
+                        <X className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>
@@ -201,10 +308,10 @@ export function TeamMembersCard({
 
           {/* Add Member Form */}
           {showAddForm && canAddMoreMembers && (
-            <div className="p-3 bg-muted/30 rounded-md space-y-3">
+            <div className="p-3 bg-muted/30 rounded-md space-y-3 border">
               <div className="space-y-2">
                 <Input
-                  placeholder="Enter email address"
+                  placeholder="Enter member's email address"
                   value={newMemberEmail}
                   onChange={(e) => setNewMemberEmail(e.target.value)}
                   type="email"
@@ -247,6 +354,10 @@ export function TeamMembersCard({
                     Maximum 2 admins allowed per workspace
                   </p>
                 )}
+                
+                <p className="text-xs text-muted-foreground">
+                  {getRolePermissions(newMemberRole)}
+                </p>
               </div>
             </div>
           )}

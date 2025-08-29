@@ -10,40 +10,46 @@ export async function DELETE(
     const user = await currentUser();
     
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    // Check if user is admin of this workspace
+    // Check if workspace is personal (prevent modification)
     const workspace = await prisma.workspace.findUnique({
-      where: {
-        id: params.workspaceId,
-        members: {
-          some: {
-            userId: user.id,
-            role: { in: ['ADMIN'] }
-          }
-        }
-      }
+      where: { id: params.workspaceId },
+      include: { members: true }
     });
 
     if (!workspace) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+
+    if (workspace.isPersonal) {
       return NextResponse.json(
-        { error: 'Workspace not found or access denied' },
-        { status: 404 }
+        { error: 'Cannot modify members in personal workspace' },
+        { status: 400 }
       );
     }
 
-    // Get the target member to check if it's the current user
+    // Check if user is admin of this workspace
+    const isAdmin = workspace.members.some(
+      m => m.userId === user.id && m.role === 'ADMIN'
+    );
+
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: 'Admin privileges required to remove members' },
+        { status: 403 }
+      );
+    }
+
+    // Get the target member
     const targetMember = await prisma.workspaceMember.findUnique({
       where: { id: params.memberId },
       include: { user: true }
     });
 
     if (!targetMember) {
-      return NextResponse.json(
-        { error: 'Member not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Member not found' }, { status: 404 });
     }
 
     // Prevent self-removal
@@ -67,7 +73,10 @@ export async function DELETE(
       where: { id: params.memberId }
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ 
+      success: true,
+      message: 'Member removed successfully' 
+    });
   } catch (error) {
     console.error('Error removing member:', error);
     return NextResponse.json(
@@ -85,38 +94,44 @@ export async function PATCH(
     const user = await currentUser();
     
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
     const { role } = await request.json();
     
-    if (!role) {
+    if (!role || !['ADMIN', 'MEMBER', 'VIEWER'].includes(role)) {
       return NextResponse.json(
-        { error: 'Role is required' },
+        { error: 'Valid role is required (ADMIN, MEMBER, or VIEWER)' },
+        { status: 400 }
+      );
+    }
+
+    // Check if workspace is personal (prevent modification)
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: params.workspaceId },
+      include: { members: true }
+    });
+
+    if (!workspace) {
+      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+    }
+
+    if (workspace.isPersonal) {
+      return NextResponse.json(
+        { error: 'Cannot modify roles in personal workspace' },
         { status: 400 }
       );
     }
 
     // Check if user is admin of this workspace
-    const workspace = await prisma.workspace.findUnique({
-      where: {
-        id: params.workspaceId,
-        members: {
-          some: {
-            userId: user.id,
-            role: { in: ['ADMIN'] }
-          }
-        }
-      },
-      include: {
-        members: true
-      }
-    });
+    const isAdmin = workspace.members.some(
+      m => m.userId === user.id && m.role === 'ADMIN'
+    );
 
-    if (!workspace) {
+    if (!isAdmin) {
       return NextResponse.json(
-        { error: 'Workspace not found or access denied' },
-        { status: 404 }
+        { error: 'Admin privileges required to change roles' },
+        { status: 403 }
       );
     }
 
@@ -126,10 +141,7 @@ export async function PATCH(
     });
 
     if (!targetMember) {
-      return NextResponse.json(
-        { error: 'Member not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Member not found' }, { status: 404 });
     }
 
     // Check admin limit when promoting to ADMIN
@@ -160,7 +172,11 @@ export async function PATCH(
       }
     });
 
-    return NextResponse.json(updatedMember);
+    return NextResponse.json({
+      success: true,
+      message: `Role updated to ${role}`,
+      member: updatedMember
+    });
   } catch (error) {
     console.error('Error updating member role:', error);
     return NextResponse.json(

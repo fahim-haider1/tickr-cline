@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { redirect } from 'next/navigation'
+import Image from 'next/image'
 import { WorkspaceSelector } from '@/components/workspace-selector'
 import { TeamMembersCard } from '@/components/TeamMembersCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -164,10 +165,11 @@ export default function Dashboard() {
   const isAdmin = isOwner || userMembership?.role === 'ADMIN'
 
   return (
+    
     <div className="container mx-auto px-4 py-8">
-      <img src="/images/Group 5 (2).svg" alt="Tickr Logo" className='h-10 w-10' />
-
+      
       <div className="mb-8">
+        
         <h1 className="text-3xl font-bold mb-2">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}!</h1>
         <p className="text-muted-foreground">
           Here's what's happening with your projects today

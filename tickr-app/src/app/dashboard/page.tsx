@@ -165,6 +165,8 @@ export default function Dashboard() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <img src="/images/Group 5 (2).svg" alt="Tickr Logo" className='h-10 w-10' />
+
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}!</h1>
         <p className="text-muted-foreground">

@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { currentUser } from '@clerk/nextjs/server';
+import { requireWorkspaceAuth } from '@/lib/workspaceAuth'; // Add this import
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { workspaceId: string } }
 ) {
   try {
-    const user = await currentUser();
+    // Replace manual auth check with utility - ADMIN required for adding members
+    const authResult = await requireWorkspaceAuth(params.workspaceId, 'ADMIN');
     
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!authResult.success) {
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
     }
+
+    const { user } = authResult;
 
     const { email, role } = await request.json();
     
@@ -22,16 +25,10 @@ export async function POST(
       );
     }
 
-    // Check if workspace exists and user has admin access
+    // Check if workspace exists and get members
     const workspace = await prisma.workspace.findUnique({
       where: {
-        id: params.workspaceId,
-        members: {
-          some: {
-            userId: user.id,
-            role: { in: ['ADMIN'] }
-          }
-        }
+        id: params.workspaceId
       },
       include: {
         members: true
@@ -40,13 +37,21 @@ export async function POST(
 
     if (!workspace) {
       return NextResponse.json(
-        { error: 'Workspace not found or access denied' },
+        { error: 'Workspace not found' },
         { status: 404 }
       );
     }
 
-    // Check member limit (max 5 members excluding personal workspace)
-    if (!workspace.isPersonal && workspace.members.length >= 5) {
+    // Check if workspace is personal (prevent member addition)
+    if (workspace.isPersonal) {
+      return NextResponse.json(
+        { error: 'Cannot add members to personal workspace' },
+        { status: 400 }
+      );
+    }
+
+    // Check member limit (max 5 members for non-personal workspaces)
+    if (workspace.members.length >= 5) {
       return NextResponse.json(
         { error: 'Workspace member limit reached (max 5 members)' },
         { status: 400 }

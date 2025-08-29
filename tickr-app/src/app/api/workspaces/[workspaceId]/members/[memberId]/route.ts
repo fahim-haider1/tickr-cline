@@ -1,17 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { currentUser } from '@clerk/nextjs/server';
+import { requireWorkspaceAuth } from '@/lib/workspaceAuth'; // Add this import
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { workspaceId: string; memberId: string } }
 ) {
   try {
-    const user = await currentUser();
+    // Replace manual auth check with utility
+    const authResult = await requireWorkspaceAuth(params.workspaceId, 'ADMIN');
     
-    if (!user) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    if (!authResult.success) {
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
     }
+
+    const { user } = authResult;
 
     // Check if workspace is personal (prevent modification)
     const workspace = await prisma.workspace.findUnique({
@@ -27,18 +30,6 @@ export async function DELETE(
       return NextResponse.json(
         { error: 'Cannot modify members in personal workspace' },
         { status: 400 }
-      );
-    }
-
-    // Check if user is admin of this workspace
-    const isAdmin = workspace.members.some(
-      m => m.userId === user.id && m.role === 'ADMIN'
-    );
-
-    if (!isAdmin) {
-      return NextResponse.json(
-        { error: 'Admin privileges required to remove members' },
-        { status: 403 }
       );
     }
 
@@ -91,11 +82,14 @@ export async function PATCH(
   { params }: { params: { workspaceId: string; memberId: string } }
 ) {
   try {
-    const user = await currentUser();
+    // Replace manual auth check with utility
+    const authResult = await requireWorkspaceAuth(params.workspaceId, 'ADMIN');
     
-    if (!user) {
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    if (!authResult.success) {
+      return NextResponse.json({ error: authResult.error }, { status: authResult.status });
     }
+
+    const { user } = authResult;
 
     const { role } = await request.json();
     
@@ -120,18 +114,6 @@ export async function PATCH(
       return NextResponse.json(
         { error: 'Cannot modify roles in personal workspace' },
         { status: 400 }
-      );
-    }
-
-    // Check if user is admin of this workspace
-    const isAdmin = workspace.members.some(
-      m => m.userId === user.id && m.role === 'ADMIN'
-    );
-
-    if (!isAdmin) {
-      return NextResponse.json(
-        { error: 'Admin privileges required to change roles' },
-        { status: 403 }
       );
     }
 

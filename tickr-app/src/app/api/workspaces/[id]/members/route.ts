@@ -8,10 +8,6 @@ const inviteMemberSchema = z.object({
   role: z.enum(['ADMIN', 'MEMBER', 'VIEWER']).default('MEMBER'),
 })
 
-const updateMemberSchema = z.object({
-  role: z.enum(['ADMIN', 'MEMBER', 'VIEWER']),
-})
-
 // GET /api/workspaces/[id]/members - Get workspace members
 export async function GET(
   request: NextRequest,
@@ -41,7 +37,7 @@ export async function GET(
       return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
     }
 
-    // Get all members including owner
+    // Get all members
     const members = await prisma.workspaceMember.findMany({
       where: { workspaceId: id },
       include: {

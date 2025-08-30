@@ -1,6 +1,7 @@
+// src/components/workspace-selector.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ChevronDown, Plus, Settings, Users } from 'lucide-react';
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog';
@@ -12,10 +13,32 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 
+interface WorkspaceMember {
+  id: string
+  userId: string
+  workspaceId: string
+  role: 'ADMIN' | 'MEMBER' | 'VIEWER'
+  joinedAt: Date
+  user: {
+    id: string
+    email: string
+    name: string | null
+    image: string | null
+    createdAt: Date
+    updatedAt: Date
+  }
+}
+
 interface Workspace {
   id: string;
   name: string;
+  description: string | null;
+  ownerId: string;
   isPersonal: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  members: WorkspaceMember[];
+  columns: any[];
 }
 
 interface WorkspaceSelectorProps {
@@ -24,15 +47,14 @@ interface WorkspaceSelectorProps {
 }
 
 export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: WorkspaceSelectorProps) {
+  // hooks must be unconditional and at the top
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchWorkspaces();
-  }, []);
-
-  const fetchWorkspaces = async () => {
+  // stable fetch function
+  const fetchWorkspaces = useCallback(async () => {
     try {
+      setLoading(true);
       const response = await fetch('/api/workspaces');
       if (response.ok) {
         const data = await response.json();
@@ -40,14 +62,21 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
         if (data.length > 0 && !selectedWorkspaceId) {
           onWorkspaceSelect(data[0]);
         }
+      } else {
+        console.error('Failed to load workspaces', response.status);
       }
     } catch (error) {
       console.error('Error fetching workspaces:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [onWorkspaceSelect, selectedWorkspaceId]);
 
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
+
+  // fixed: spread prev correctly
   const handleWorkspaceCreated = (newWorkspace: Workspace) => {
     setWorkspaces(prev => [...prev, newWorkspace]);
     onWorkspaceSelect(newWorkspace);

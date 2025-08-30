@@ -31,10 +31,24 @@ export async function GET(
         ]
       },
       include: {
-        owner: true,
+        owner: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            image: true,
+          }
+        },
         members: {
           include: {
-            user: true
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                image: true,
+              }
+            }
           }
         },
         columns: {
@@ -42,7 +56,14 @@ export async function GET(
             tasks: {
               include: {
                 subtasks: true,
-                assignee: true
+                assignee: {
+                  select: {
+                    id: true,
+                    email: true,
+                    name: true,
+                    image: true,
+                  }
+                }
               }
             }
           },
@@ -109,10 +130,24 @@ export async function PUT(
         ...(description !== undefined && { description }),
       },
       include: {
-        owner: true,
+        owner: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            image: true,
+          }
+        },
         members: {
           include: {
-            user: true
+            user: {
+              select: {
+                id: true,
+                email: true,
+                name: true,
+                image: true,
+              }
+            }
           }
         },
         columns: {

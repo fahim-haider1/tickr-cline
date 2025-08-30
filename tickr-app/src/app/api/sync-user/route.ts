@@ -1,33 +1,50 @@
 // src/app/api/sync-user/route.ts
+
 import { prisma } from '@/lib/prisma';
 import { NextRequest, NextResponse } from 'next/server';
-import { currentUser } from '@clerk/nextjs/server';
+import { getAuth } from '@clerk/nextjs/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await currentUser();
-    
-    if (!user) {
+    const { userId } = getAuth(request as any);
+
+    if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Get user data from Clerk
+    const response = await fetch(`https://api.clerk.dev/v1/users/${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch user from Clerk');
+    }
+
+    const clerkUser = await response.json();
+
     // Check if user already exists in our database
     const existingUser = await prisma.user.findUnique({
-      where: { id: user.id }
+      where: { id: userId }
     });
 
     if (existingUser) {
       // Update user if needed
-      if (existingUser.email !== user.emailAddresses[0]?.emailAddress || 
-          existingUser.name !== `${user.firstName} ${user.lastName}`.trim() ||
-          existingUser.image !== user.imageUrl) {
+      const primaryEmail = clerkUser.email_addresses.find((email: any) => email.id === clerkUser.primary_email_address_id);
+      
+      if (existingUser.email !== primaryEmail?.email_address ||
+          existingUser.name !== `${clerkUser.first_name} ${clerkUser.last_name}`.trim() ||
+          existingUser.image !== clerkUser.image_url) {
         
         const updatedUser = await prisma.user.update({
-          where: { id: user.id },
+          where: { id: userId },
           data: {
-            email: user.emailAddresses[0]?.emailAddress || existingUser.email,
-            name: `${user.firstName} ${user.lastName}`.trim() || existingUser.name,
-            image: user.imageUrl || existingUser.image
+            email: primaryEmail?.email_address || existingUser.email,
+            name: `${clerkUser.first_name} ${clerkUser.last_name}`.trim() || existingUser.name,
+            image: clerkUser.image_url || existingUser.image
           }
         });
 
@@ -38,12 +55,14 @@ export async function POST(request: NextRequest) {
     }
 
     // Create new user
+    const primaryEmail = clerkUser.email_addresses.find((email: any) => email.id === clerkUser.primary_email_address_id);
+    
     const newUser = await prisma.user.create({
       data: {
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || '',
-        name: `${user.firstName} ${user.lastName}`.trim(),
-        image: user.imageUrl
+        id: userId,
+        email: primaryEmail?.email_address || '',
+        name: `${clerkUser.first_name} ${clerkUser.last_name}`.trim(),
+        image: clerkUser.image_url
       }
     });
 
@@ -73,16 +92,16 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({ 
-      user: newUser, 
-      workspace: personalWorkspace, 
-      action: 'created' 
+    return NextResponse.json({
+      user: newUser,
+      workspace: personalWorkspace,
+      action: 'created'
     });
 
   } catch (error) {
     console.error('Error syncing user:', error);
     return NextResponse.json(
-      { error: 'Internal server error' }, 
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

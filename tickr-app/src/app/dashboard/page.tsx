@@ -39,31 +39,45 @@ interface Workspace {
 }
 
 export default function Dashboard() {
-  const { user, isLoaded } = useUser()
+  const { isLoaded, user } = useUser()
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(null)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Moved useEffect to the top - hooks must be called unconditionally
   useEffect(() => {
     if (user) {
       fetchWorkspaces()
     }
   }, [user])
 
+  // Show loading state until auth is loaded
+  if (!isLoaded) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // Redirect if not authenticated
+  if (!user) {
+    redirect('/')
+  }
+
   const fetchWorkspaces = async () => {
     try {
       setLoading(true)
       setError(null)
       const response = await fetch('/api/workspaces')
-      
       if (!response.ok) {
         throw new Error(`Failed to fetch workspaces: ${response.status}`)
       }
-      
       const data = await response.json()
       setWorkspaces(data)
-      
       if (data.length > 0) {
         setSelectedWorkspace(data[0])
       }
@@ -77,20 +91,17 @@ export default function Dashboard() {
 
   const handleMemberAdd = async (email: string, role: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
     if (!selectedWorkspace) throw new Error('No workspace selected')
-    
+
     try {
       const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, role }),
       })
-      
       const data = await response.json()
-      
       if (!response.ok) {
         throw new Error(data.error || 'Failed to add member')
       }
-      
       // Refresh workspaces to get updated data
       fetchWorkspaces()
       return data
@@ -102,18 +113,15 @@ export default function Dashboard() {
 
   const handleMemberRemove = async (memberId: string) => {
     if (!selectedWorkspace) throw new Error('No workspace selected')
-    
+
     try {
       const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members/${memberId}`, {
         method: 'DELETE',
       })
-      
       const data = await response.json()
-      
       if (!response.ok) {
         throw new Error(data.error || 'Failed to remove member')
       }
-      
       fetchWorkspaces()
       return data
     } catch (error) {
@@ -124,20 +132,17 @@ export default function Dashboard() {
 
   const handleRoleChange = async (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
     if (!selectedWorkspace) throw new Error('No workspace selected')
-    
+
     try {
       const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members/${memberId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       })
-      
       const data = await response.json()
-      
       if (!response.ok) {
         throw new Error(data.error || 'Failed to change role')
       }
-      
       fetchWorkspaces()
       return data
     } catch (error) {
@@ -146,30 +151,13 @@ export default function Dashboard() {
     }
   }
 
-  if (!isLoaded) {
-    return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    redirect('/')
-  }
-
   const isOwner = selectedWorkspace?.ownerId === user.id
   const userMembership = selectedWorkspace?.members.find(m => m.userId === user.id)
   const isAdmin = isOwner || userMembership?.role === 'ADMIN'
 
   return (
-    
     <div className="container mx-auto px-4 py-8">
-      
       <div className="mb-8">
-        
         <h1 className="text-3xl font-bold mb-2">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}!</h1>
         <p className="text-muted-foreground">
           Here's what's happening with your projects today

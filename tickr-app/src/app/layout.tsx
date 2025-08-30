@@ -1,4 +1,5 @@
 // src/app/layout.tsx
+
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import {
@@ -28,6 +29,10 @@ export default function RootLayout({
     <ClerkProvider>
       <html lang="en">
         <body className={inter.className}>
+          {/* UserSync must be rendered unconditionally inside ClerkProvider */}
+          <UserSync />
+          
+          {/* Public content for signed out users */}
           <SignedOut>
             <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
               <div className="container flex h-14 items-center">
@@ -51,8 +56,8 @@ export default function RootLayout({
             {children}
           </SignedOut>
 
+          {/* Protected content for signed in users */}
           <SignedIn>
-            <UserSync />
             <ClientLayout>{children}</ClientLayout>
           </SignedIn>
         </body>

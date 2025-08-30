@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 interface Workspace {
   id: string;
@@ -14,6 +14,7 @@ interface WorkspaceContextType {
   selectedWorkspace: string;
   setSelectedWorkspace: (id: string) => void;
   loading: boolean;
+  refreshWorkspaces: () => Promise<void>;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextType | undefined>(undefined);
@@ -23,12 +24,9 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [selectedWorkspace, setSelectedWorkspace] = useState<string>('');
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchWorkspaces();
-  }, []);
-
-  const fetchWorkspaces = async () => {
+  const fetchWorkspaces = useCallback(async () => {
     try {
+      setLoading(true);
       const response = await fetch('/api/workspaces');
       if (response.ok) {
         const data = await response.json();
@@ -42,7 +40,15 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedWorkspace]);
+
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
+
+  const refreshWorkspaces = useCallback(async () => {
+    await fetchWorkspaces();
+  }, [fetchWorkspaces]);
 
   return (
     <WorkspaceContext.Provider
@@ -50,7 +56,8 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
         workspaces,
         selectedWorkspace,
         setSelectedWorkspace,
-        loading
+        loading,
+        refreshWorkspaces
       }}
     >
       {children}

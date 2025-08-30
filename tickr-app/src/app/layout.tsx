@@ -1,7 +1,7 @@
 // src/app/layout.tsx
 
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Outfit, Fira_Code } from 'next/font/google'
 import {
   ClerkProvider,
   SignInButton,
@@ -13,7 +13,8 @@ import { UserSync } from '@/components/UserSync'
 import { ClientLayout } from './ClientLayout'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const outfit = Outfit({ subsets: ['latin'], display: 'swap', variable: '--font-outfit' })
+const firaCode = Fira_Code({ subsets: ['latin'], display: 'swap', variable: '--font-fira-code' })
 
 export const metadata: Metadata = {
   title: 'Tickr - Kanban Task Manager',
@@ -27,8 +28,8 @@ export default function RootLayout({
 }) {
   return (
     <ClerkProvider>
-      <html lang="en">
-        <body className={inter.className}>
+      <html lang="en" className="dark">
+        <body className={`font-sans antialiased ${outfit.variable} ${firaCode.variable}`}>
           {/* UserSync must be rendered unconditionally inside ClerkProvider */}
           <UserSync />
           

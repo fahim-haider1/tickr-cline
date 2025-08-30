@@ -71,7 +71,8 @@ export default function TaskCard({ title, subtitle, priority, subtasks }: TaskCa
           <label key={st.id} className="flex items-center gap-2 text-xs">
             <Checkbox
               checked={st.done}
-              readOnly
+              onCheckedChange={() => {}}
+              aria-readonly
               className="border-border data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500"
             />
             <span className={st.done ? "text-green-500 line-through" : "text-white/70"}>

@@ -3,12 +3,14 @@
 import { useState, useEffect } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { redirect } from 'next/navigation'
-import Image from 'next/image'
 import { WorkspaceSelector } from '@/components/workspace-selector'
 import { TeamMembersCard } from '@/components/TeamMembersCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Plus, Settings, BarChart3 } from 'lucide-react'
+
+// ✅ Correct default import
+import TaskCard from "@/components/board/TaskCard"
 
 interface WorkspaceMember {
   id: string
@@ -45,14 +47,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Moved useEffect to the top - hooks must be called unconditionally
   useEffect(() => {
     if (user) {
       fetchWorkspaces()
     }
   }, [user])
 
-  // Show loading state until auth is loaded
   if (!isLoaded) {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -63,7 +63,6 @@ export default function Dashboard() {
     )
   }
 
-  // Redirect if not authenticated
   if (!user) {
     redirect('/')
   }
@@ -91,7 +90,6 @@ export default function Dashboard() {
 
   const handleMemberAdd = async (email: string, role: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
     if (!selectedWorkspace) throw new Error('No workspace selected')
-
     try {
       const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members`, {
         method: 'POST',
@@ -102,7 +100,6 @@ export default function Dashboard() {
       if (!response.ok) {
         throw new Error(data.error || 'Failed to add member')
       }
-      // Refresh workspaces to get updated data
       fetchWorkspaces()
       return data
     } catch (error) {
@@ -113,7 +110,6 @@ export default function Dashboard() {
 
   const handleMemberRemove = async (memberId: string) => {
     if (!selectedWorkspace) throw new Error('No workspace selected')
-
     try {
       const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members/${memberId}`, {
         method: 'DELETE',
@@ -132,7 +128,6 @@ export default function Dashboard() {
 
   const handleRoleChange = async (memberId: string, newRole: 'ADMIN' | 'MEMBER' | 'VIEWER') => {
     if (!selectedWorkspace) throw new Error('No workspace selected')
-
     try {
       const response = await fetch(`/api/workspaces/${selectedWorkspace.id}/members/${memberId}`, {
         method: 'PATCH',
@@ -158,23 +153,19 @@ export default function Dashboard() {
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}!</h1>
+        <h1 className="text-3xl font-bold mb-2">
+          Welcome back, {user.firstName || user.emailAddresses[0]?.emailAddress}!
+        </h1>
         <p className="text-muted-foreground">
           Here's what's happening with your projects today
         </p>
       </div>
 
-      {/* Error Display */}
       {error && (
         <div className="mb-6 p-4 bg-red-100 border border-red-300 text-red-700 rounded-md">
           <div className="flex items-center justify-between">
             <span>{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-800 hover:text-red-900"
-            >
-              ×
-            </button>
+            <button onClick={() => setError(null)} className="text-red-800 hover:text-red-900">×</button>
           </div>
         </div>
       )}
@@ -273,9 +264,12 @@ export default function Dashboard() {
                         </Button>
                       </div>
                       <div className="space-y-3">
-                        <div className="text-sm text-muted-foreground text-center py-8">
-                          No tasks yet. Click "Add Task" to get started!
-                        </div>
+                        {/* ✅ Render TaskCard here */}
+                        <TaskCard
+                          title="Setup Database"
+                          subtitle="Configure Prisma and PostgreSQL"
+                          priority="High"
+                        />
                       </div>
                     </div>
 

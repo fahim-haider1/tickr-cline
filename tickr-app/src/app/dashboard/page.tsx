@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Plus, Settings, BarChart3 } from 'lucide-react'
 
-// ✅ Correct default import
+// ✅ TaskCard import
 import TaskCard from "@/components/board/TaskCard"
 
 interface WorkspaceMember {
@@ -264,11 +264,15 @@ export default function Dashboard() {
                         </Button>
                       </div>
                       <div className="space-y-3">
-                        {/* ✅ Render TaskCard here */}
+                        {/* ✅ TaskCard with subtasks + progress */}
                         <TaskCard
                           title="Setup Database"
                           subtitle="Configure Prisma and PostgreSQL"
                           priority="High"
+                          subtasks={[
+                            { id: "1", title: "Install Postgres", done: true },
+                            { id: "2", title: "Setup Prisma Schema", done: false }
+                          ]}
                         />
                       </div>
                     </div>

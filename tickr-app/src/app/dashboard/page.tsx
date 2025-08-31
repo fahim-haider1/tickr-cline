@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Plus, ChevronRight, Users, LogOut } from "lucide-react"
+import { Plus, ChevronRight, ChevronLeft, Users, LogOut } from "lucide-react"
 
 interface Task {
   id: string
@@ -26,6 +26,9 @@ interface Column {
 }
 
 export default function KanbanBoard() {
+  // Collapsible sidebar state
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+
   const [columns] = useState<Column[]>([
     {
       id: "1",
@@ -162,41 +165,81 @@ export default function KanbanBoard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* SIDEBAR – fills full height; no content behind it */}
-      <aside className="fixed inset-y-0 left-0 w-64 bg-sidebar text-sidebar-foreground border-r border-sidebar-border">
+      {/* SIDEBAR – collapsible */}
+      <aside
+        className={`fixed inset-y-0 left-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground
+          ${sidebarOpen ? "w-64" : "w-16"} transition-[width] duration-300 ease-in-out`}
+      >
         <div className="h-full flex flex-col p-4 gap-6">
-          {/* header row */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Workspaces</span>
-            <div className="flex items-center -space-x-0.5 text-sidebar-foreground/80">
-              <ChevronRight className="w-3 h-3" />
-              <ChevronRight className="w-3 h-3" />
+          {/* HEADER ROW WITH ALWAYS-VISIBLE TOGGLE */}
+          {sidebarOpen ? (
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Workspaces</span>
+              <button
+                type="button"
+                aria-label="Collapse sidebar"
+                onClick={() => setSidebarOpen(false)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-sidebar/70"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                aria-label="Expand sidebar"
+                onClick={() => setSidebarOpen(true)}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-sidebar/70"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* workspace list */}
+          <div className="space-y-1">
+            <div className="px-3 py-2 rounded-lg bg-sidebar/70 ring-1 ring-sidebar-border/50 flex items-center">
+              <span className={`whitespace-nowrap transition-all ${sidebarOpen ? "block" : "hidden"}`}>Personal</span>
+              {!sidebarOpen && <span className="mx-auto h-2 w-2 rounded-full bg-sidebar-foreground/80" />}
+            </div>
+            <div className="px-3 py-2 rounded-lg hover:bg-sidebar/60 cursor-pointer flex items-center">
+              <span className={`whitespace-nowrap transition-all ${sidebarOpen ? "block" : "hidden"}`}>Work</span>
+              {!sidebarOpen && <span className="mx-auto h-2 w-2 rounded-full bg-sidebar-foreground/60" />}
+            </div>
+            <div className="px-3 py-2 rounded-lg hover:bg-sidebar/60 cursor-pointer flex items-center">
+              <span className={`whitespace-nowrap transition-all ${sidebarOpen ? "block" : "hidden"}`}>Project</span>
+              {!sidebarOpen && <span className="mx-auto h-2 w-2 rounded-full bg-sidebar-foreground/60" />}
             </div>
           </div>
 
-          {/* workspace list (example static) */}
-          <div className="space-y-1">
-            <div className="px-3 py-2 rounded-lg bg-sidebar/70 ring-1 ring-sidebar-border/50">Personal</div>
-            <div className="px-3 py-2 rounded-lg hover:bg-sidebar/60 cursor-pointer">Work</div>
-            <div className="px-3 py-2 rounded-lg hover:bg-sidebar/60 cursor-pointer">Project</div>
-          </div>
-
-          <Button className="mt-auto w-full bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90">
-            Add New Workspace
-          </Button>
+          {/* add workspace button (hide when collapsed) */}
+          {sidebarOpen ? (
+            <Button className="mt-auto w-full bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90">
+              Add New Workspace
+            </Button>
+          ) : (
+            <div className="mt-auto flex justify-center">
+              <Button size="icon" className="bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90">
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </aside>
 
-      {/* MAIN – shifted right by the sidebar width */}
-      <main className="ml-64">
+      {/* MAIN – margin-left matches sidebar width */}
+      <main
+        className={`transition-[margin] duration-300 ease-in-out ${sidebarOpen ? "ml-64" : "ml-16"}`}
+      >
         {/* top bar */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/60 backdrop-blur">
-          {/* Left side with logo */}
+          {/* Left: logo (unchanged) */}
           <div className="flex items-center">
             <img src="/Group 5 (2).svg" alt="Tickr Logo" className="h-8 w-auto" />
           </div>
 
-          {/* Right side */}
+          {/* Right */}
           <div className="flex items-center gap-4">
             <Button variant="outline" className="hidden sm:inline-flex">Dashboard</Button>
             <div className="flex items-center gap-2">

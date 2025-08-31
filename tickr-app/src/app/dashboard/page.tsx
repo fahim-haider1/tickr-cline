@@ -150,7 +150,11 @@ export default function KanbanBoard() {
   ])
 
   const getPriorityTint = (p: Task["priority"]) =>
-    p === "High" ? "bg-destructive/15 text-destructive" : p === "Medium" ? "bg-accent/15 text-accent-foreground" : "bg-secondary text-secondary-foreground"
+    p === "High"
+      ? "bg-destructive/15 text-destructive"
+      : p === "Medium"
+      ? "bg-accent/15 text-accent-foreground"
+      : "bg-secondary text-secondary-foreground"
 
   const handleLogout = () => {
     console.log("Logging out…")
@@ -187,7 +191,12 @@ export default function KanbanBoard() {
       <main className="ml-64">
         {/* top bar */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/60 backdrop-blur">
-          <div />
+          {/* Left side with logo */}
+          <div className="flex items-center">
+            <img src="/Group 5 (2).svg" alt="Tickr Logo" className="h-8 w-auto" />
+          </div>
+
+          {/* Right side */}
           <div className="flex items-center gap-4">
             <Button variant="outline" className="hidden sm:inline-flex">Dashboard</Button>
             <div className="flex items-center gap-2">

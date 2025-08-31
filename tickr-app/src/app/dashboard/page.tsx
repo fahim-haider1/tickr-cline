@@ -53,9 +53,10 @@ type Column = {
 type Workspace = {
   id: string
   name: string
-  createdAt: number
-  undeletable?: boolean
+  isPersonal?: boolean
 }
+
+type WorkspaceUI = Workspace & { undeletable?: boolean }
 
 type Member = {
   id: string
@@ -64,9 +65,8 @@ type Member = {
   role: "admin" | "member" | "viewer"
 }
 
-const WS_STORAGE_KEY = "tickr:workspaces"
-
 export default function KanbanBoard() {
+  // ----- Demo board data (unchanged) -----
   const [columns] = useState<Column[]>([
     {
       id: "1",
@@ -197,24 +197,24 @@ export default function KanbanBoard() {
       ? "bg-accent/15 text-accent-foreground"
       : "bg-secondary text-secondary-foreground"
 
-  // primary sidebar
+  // ----- Primary sidebar -----
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const toggleSidebar = () => setSidebarCollapsed((s) => !s)
 
-  // workspaces
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  // ----- Workspaces (via API) -----
+  const [workspaces, setWorkspaces] = useState<WorkspaceUI[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
 
-  // secondary sidebar
+  // ----- Secondary sidebar -----
   const [rightOpen, setRightOpen] = useState(false)
   const openRight = () => setRightOpen(true)
   const closeRight = () => setRightOpen(false)
 
-  // invite form
+  // ----- Invite form -----
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<"admin" | "member" | "viewer">("member")
 
-  // members list
+  // ----- Members list -----
   const [members, setMembers] = useState<Member[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState<string>("")
@@ -223,7 +223,6 @@ export default function KanbanBoard() {
   const remainingSlots = useMemo(() => Math.max(0, MAX_MEMBERS - members.length), [members.length])
   const atCapacity = remainingSlots === 0
 
-  // util to title-case a name from an email local-part
   const nameFromEmail = (email: string) => {
     const local = email.split("@")[0].replace(/[._-]+/g, " ")
     return local
@@ -265,60 +264,109 @@ export default function KanbanBoard() {
     setMembers((prev) => prev.filter((m) => m.id !== id))
   }
 
-  // workspaces with personal default
+  // ===== Workspace API wiring =====
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(WS_STORAGE_KEY)
-      let parsed: Workspace[] = raw ? JSON.parse(raw) : []
+    const load = async () => {
+      const res = await fetch("/api/workspaces", { cache: "no-store" })
+      if (!res.ok) return
+      const data: Workspace[] = await res.json()
 
-      if (!parsed.some((w) => w.undeletable)) {
-        const personal: Workspace = {
-          id: crypto.randomUUID(),
-          name: "Personal Workspace",
-          createdAt: Date.now(),
-          undeletable: true,
+      if (data.length === 0) {
+        // create a default Personal Workspace, then reload
+        const created = await fetch("/api/workspaces", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Personal Workspace" }),
+        })
+        if (created.ok) {
+          const again = await fetch("/api/workspaces", { cache: "no-store" })
+          const list: Workspace[] = again.ok ? await again.json() : []
+          setWorkspaces(
+            list.map((w) => ({
+              ...w,
+              undeletable: w.isPersonal || w.name === "Personal Workspace",
+            }))
+          )
+          if (!selectedWorkspaceId && list.length > 0) setSelectedWorkspaceId(list[0].id)
+          return
         }
-        parsed = [personal, ...parsed]
       }
 
-      setWorkspaces(parsed)
-      if (!selectedWorkspaceId && parsed.length > 0) {
-        setSelectedWorkspaceId(parsed[0].id)
-      }
-    } catch {}
+      setWorkspaces(
+        data.map((w) => ({
+          ...w,
+          undeletable: w.isPersonal || w.name === "Personal Workspace",
+        }))
+      )
+      if (!selectedWorkspaceId && data.length > 0) setSelectedWorkspaceId(data[0].id)
+    }
+
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  useEffect(() => {
-    localStorage.setItem(WS_STORAGE_KEY, JSON.stringify(workspaces))
-  }, [workspaces])
-
-  const addWorkspace = () => {
+  // ✅ FIXED addWorkspace: save to DB then reload list
+  const addWorkspace = async () => {
     const name = window.prompt("Workspace name?")
     if (!name) return
-    const ws: Workspace = { id: crypto.randomUUID(), name: name.trim(), createdAt: Date.now() }
-    setWorkspaces((prev) => [...prev, ws])
-    if (!selectedWorkspaceId) setSelectedWorkspaceId(ws.id)
+
+    const res = await fetch("/api/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    })
+
+    if (res.ok) {
+      const again = await fetch("/api/workspaces", { cache: "no-store" })
+      const list: Workspace[] = again.ok ? await again.json() : []
+
+      setWorkspaces(
+        list.map((w) => ({
+          ...w,
+          undeletable: w.isPersonal || w.name === "Personal Workspace",
+        }))
+      )
+
+      if (!selectedWorkspaceId && list.length > 0) {
+        setSelectedWorkspaceId(list[list.length - 1].id)
+      }
+    }
   }
 
-  const editWorkspace = (id: string) => {
+  // 3) Edit workspace
+  const editWorkspace = async (id: string) => {
     const current = workspaces.find((w) => w.id === id)
     if (!current || current.undeletable) return
     const name = window.prompt("Rename workspace", current.name)
     if (!name) return
-    setWorkspaces((prev) => prev.map((w) => (w.id === id ? { ...w, name: name.trim() } : w)))
+    const res = await fetch(`/api/workspaces/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    })
+    if (res.ok) {
+      setWorkspaces((prev) =>
+        prev.map((w) => (w.id === id ? { ...w, name: name.trim() } : w))
+      )
+    }
   }
 
-  const deleteWorkspace = (id: string) => {
+  // 4) Delete workspace
+  const deleteWorkspace = async (id: string) => {
     const current = workspaces.find((w) => w.id === id)
     if (!current || current.undeletable) return
     const ok = window.confirm("Delete this workspace?")
     if (!ok) return
-    setWorkspaces((prev) => prev.filter((w) => w.id !== id))
-    if (selectedWorkspaceId === id) setSelectedWorkspaceId(workspaces[0]?.id ?? null)
+    const res = await fetch(`/api/workspaces/${id}`, { method: "DELETE" })
+    if (res.ok) {
+      setWorkspaces((prev) => prev.filter((w) => w.id !== id))
+      if (selectedWorkspaceId === id) setSelectedWorkspaceId(workspaces[0]?.id ?? null)
+    }
   }
 
   const isPersonal = workspaces.find((w) => w.id === selectedWorkspaceId)?.undeletable
 
+  // ===== UI (unchanged) =====
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* PRIMARY SIDEBAR (LEFT) */}
@@ -523,18 +571,15 @@ export default function KanbanBoard() {
 
           {rightOpen ? (
             <div className="flex-1 overflow-y-auto space-y-4">
-              {/* Members list – plain rows, editable */}
               {members.length > 0 && (
                 <div className="space-y-3">
                   {members.map((m) => (
                     <div key={m.id} className="flex items-start gap-3">
-                      {/* Simple avatar from initials */}
                       <div className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-muted text-foreground/70 text-xs">
                         {m.name ? m.name[0]?.toUpperCase() : m.email[0]?.toUpperCase()}
                       </div>
 
                       <div className="flex-1">
-                        {/* Name (editable) */}
                         {editingId === m.id ? (
                           <div className="flex items-center gap-2">
                             <Input
@@ -570,10 +615,8 @@ export default function KanbanBoard() {
                           </div>
                         )}
 
-                        {/* Email */}
                         <div className="text-xs text-muted-foreground">{m.email}</div>
 
-                        {/* Role (editable) */}
                         <div className="mt-2 max-w-[180px]">
                           <Select
                             value={m.role}
@@ -591,7 +634,6 @@ export default function KanbanBoard() {
                         </div>
                       </div>
 
-                      {/* Delete */}
                       <Button
                         variant="destructive"
                         size="icon"
@@ -606,7 +648,6 @@ export default function KanbanBoard() {
                 </div>
               )}
 
-              {/* Add New Member – compact card */}
               <Card className="bg-card border-border max-w-sm">
                 <CardHeader className="pb-1">
                   <CardTitle className="text-sm">Add New Member</CardTitle>

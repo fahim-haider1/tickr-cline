@@ -1,100 +1,36 @@
-import { auth } from '@clerk/nextjs/server'
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { z } from 'zod'
+import { auth } from "@clerk/nextjs/server"
+import { NextResponse } from "next/server"
+import prisma from "@/lib/db"
 
-const createWorkspaceSchema = z.object({
-  name: z.string().min(1).max(50),
-  description: z.string().optional(),
-})
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
 
-// GET /api/workspaces - Get user's workspaces
-export async function GET(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// GET: return only the current user's workspaces
+export async function GET() {
+  const { userId } = auth()
+  if (!userId) return NextResponse.json([], { status: 200 })
 
-    const workspaces = await prisma.workspace.findMany({
-      where: {
-        OR: [
-          { ownerId: userId },
-          { members: { some: { userId } } }
-        ]
-      },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            image: true,
-          }
-        },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                image: true,
-              }
-            }
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'asc'
-      }
-    })
+  const workspaces = await prisma.workspace.findMany({
+    where: { ownerId: userId },
+    orderBy: { createdAt: "asc" },
+  })
 
-    return NextResponse.json(workspaces)
-  } catch (error) {
-    console.error('Error fetching workspaces:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
+  return NextResponse.json(workspaces)
 }
 
-// POST /api/workspaces - Create new workspace
-export async function POST(request: NextRequest) {
-  try {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+// POST: create a workspace for the current user
+export async function POST(req: Request) {
+  const { userId } = auth()
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const body = await request.json()
-    const { name, description } = createWorkspaceSchema.parse(body)
+  const { name } = await req.json()
 
-    const workspace = await prisma.workspace.create({
-      data: {
-        name,
-        description,
-        ownerId: userId,
-      },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            image: true,
-          }
-        },
-        members: true
-      }
-    })
+  const ws = await prisma.workspace.create({
+    data: {
+      name,
+      ownerId: userId,
+    },
+  })
 
-    return NextResponse.json(workspace, { status: 201 })
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 })
-    }
-    console.error('Error creating workspace:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
+  return NextResponse.json(ws, { status: 201 })
 }

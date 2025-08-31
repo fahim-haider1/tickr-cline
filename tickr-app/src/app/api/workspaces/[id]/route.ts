@@ -1,206 +1,40 @@
-import { auth } from '@clerk/nextjs/server'
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { z } from 'zod'
+// src/app/api/workspaces/[id]/route.ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const updateWorkspaceSchema = z.object({
-  name: z.string().min(1).max(50).optional(),
-  description: z.string().optional(),
-})
+import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { prisma } from "@/lib/db";
 
-// GET /api/workspaces/[id] - Get specific workspace
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+// UPDATE workspace name
+export async function PATCH(
+  req: Request,
+  { params }: { params: { id: string } }
 ) {
-  try {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { id } = await params
+  const { name } = await req.json();
 
-    const workspace = await prisma.workspace.findFirst({
-      where: {
-        id: id,
-        OR: [
-          { ownerId: userId },
-          { members: { some: { userId } } }
-        ]
-      },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            image: true,
-          }
-        },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                image: true,
-              }
-            }
-          }
-        },
-        columns: {
-          include: {
-            tasks: {
-              include: {
-                subtasks: true,
-                assignee: {
-                  select: {
-                    id: true,
-                    email: true,
-                    name: true,
-                    image: true,
-                  }
-                }
-              }
-            }
-          },
-          orderBy: {
-            order: 'asc'
-          }
-        }
-      }
-    })
+  const updated = await prisma.workspace.updateMany({
+    where: { id: params.id, ownerId: userId },
+    data: { name },
+  });
 
-    if (!workspace) {
-      return NextResponse.json({ error: 'Workspace not found' }, { status: 404 })
-    }
-
-    return NextResponse.json(workspace)
-  } catch (error) {
-    console.error('Error fetching workspace:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
+  return NextResponse.json(updated);
 }
 
-// PUT /api/workspaces/[id] - Update workspace
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const { id } = await params
-    const body = await request.json()
-    const { name, description } = updateWorkspaceSchema.parse(body)
-
-    // Check if user has admin rights
-    const workspace = await prisma.workspace.findFirst({
-      where: {
-        id: id,
-        OR: [
-          { ownerId: userId },
-          { 
-            members: { 
-              some: { 
-                userId,
-                role: 'ADMIN'
-              } 
-            } 
-          }
-        ]
-      }
-    })
-
-    if (!workspace) {
-      return NextResponse.json({ error: 'Workspace not found or insufficient permissions' }, { status: 404 })
-    }
-
-    const updatedWorkspace = await prisma.workspace.update({
-      where: { id: id },
-      data: {
-        ...(name && { name }),
-        ...(description !== undefined && { description }),
-      },
-      include: {
-        owner: {
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            image: true,
-          }
-        },
-        members: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-                image: true,
-              }
-            }
-          }
-        },
-        columns: {
-          include: {
-            tasks: true
-          }
-        }
-      }
-    })
-
-    return NextResponse.json(updatedWorkspace)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 })
-    }
-    console.error('Error updating workspace:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
-}
-
-// DELETE /api/workspaces/[id] - Delete workspace
+// DELETE workspace
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: Request,
+  { params }: { params: { id: string } }
 ) {
-  try {
-    const { userId } = await auth()
-    
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  const { userId } = auth();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { id } = await params
+  await prisma.workspace.deleteMany({
+    where: { id: params.id, ownerId: userId },
+  });
 
-    // Check if user is owner
-    const workspace = await prisma.workspace.findFirst({
-      where: {
-        id: id,
-        ownerId: userId
-      }
-    })
-
-    if (!workspace) {
-      return NextResponse.json({ error: 'Workspace not found or insufficient permissions' }, { status: 404 })
-    }
-
-    await prisma.workspace.delete({
-      where: { id: id }
-    })
-
-    return NextResponse.json({ message: 'Workspace deleted successfully' })
-  } catch (error) {
-    console.error('Error deleting workspace:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
+  return NextResponse.json({ success: true });
 }

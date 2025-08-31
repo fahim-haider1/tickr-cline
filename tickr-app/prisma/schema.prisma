@@ -1,7 +1,3 @@
-// C:\Users\ASUS\Desktop\newTickr\tickr-app\prisma\schema.prisma
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,7 +8,7 @@ datasource db {
 }
 
 model User {
-  id        String   @id // This will be Clerk's user ID
+  id        String   @id // Clerk user ID
   email     String   @unique
   name      String?
   image     String?
@@ -49,8 +45,8 @@ model WorkspaceMember {
   role        WorkspaceRole @default(MEMBER)
   joinedAt    DateTime      @default(now())
 
-  user      User      @relation(fields: [userId], references: [id])
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, workspaceId])
   @@map("workspace_members")
@@ -70,7 +66,7 @@ model Column {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id])
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   tasks     Task[]
 
   @@map("columns")
@@ -89,7 +85,7 @@ model Task {
   updatedAt   DateTime     @updatedAt
 
   assignee User?     @relation("TaskAssignee", fields: [assigneeId], references: [id])
-  column   Column    @relation(fields: [columnId], references: [id])
+  column   Column    @relation(fields: [columnId], references: [id], onDelete: Cascade)
   subtasks Subtask[]
 
   @@map("tasks")
@@ -110,7 +106,7 @@ model Subtask {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  task Task @relation(fields: [taskId], references: [id])
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@map("subtasks")
 }

@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Plus, ChevronRight, Users, LogOut, MoreVertical } from "lucide-react"
+import { SignOutButton } from "@clerk/nextjs"
 
 type Task = {
   id: string
@@ -176,7 +177,7 @@ export default function KanbanBoard() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
 
-  // Load workspaces (with Personal Workspace enforced)
+  // Load workspaces (ensure Personal Workspace exists and is undeletable)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(WS_STORAGE_KEY)
@@ -228,10 +229,6 @@ export default function KanbanBoard() {
     if (selectedWorkspaceId === id) setSelectedWorkspaceId(workspaces[0]?.id ?? null)
   }
 
-  const handleLogout = () => {
-    console.log("Logging out…")
-  }
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* SIDEBAR */}
@@ -242,9 +239,7 @@ export default function KanbanBoard() {
         <div className="h-full flex flex-col p-4 gap-4">
           {/* header row */}
           <div className="flex items-center justify-between">
-            {!sidebarCollapsed && (
-              <span className="text-base font-semibold mx-auto">Workspaces</span>
-            )}
+            {!sidebarCollapsed && <span className="text-base font-semibold mx-auto">Workspaces</span>}
             <button
               onClick={toggleSidebar}
               className="p-1 rounded hover:bg-sidebar/50 transition"
@@ -277,12 +272,20 @@ export default function KanbanBoard() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); editWorkspace(ws.id) }}>
+                      <DropdownMenuItem
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          editWorkspace(ws.id)
+                        }}
+                      >
                         Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive"
-                        onClick={(e) => { e.stopPropagation(); deleteWorkspace(ws.id) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteWorkspace(ws.id)
+                        }}
                       >
                         Delete
                       </DropdownMenuItem>
@@ -322,6 +325,7 @@ export default function KanbanBoard() {
               </span>
             </div>
             <Users className="w-5 h-5 opacity-70" />
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Avatar className="w-8 h-8 cursor-pointer">
@@ -329,10 +333,13 @@ export default function KanbanBoard() {
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleLogout} className="cursor-pointer">
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Log out
-                </DropdownMenuItem>
+                {/* ✅ redirect to /sign-in after logout */}
+                <SignOutButton redirectUrl="/sign-in">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Log out
+                  </DropdownMenuItem>
+                </SignOutButton>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -358,7 +365,9 @@ export default function KanbanBoard() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">{column.title}</span>
-                    <Badge variant="secondary" className="text-xs">{column.count}</Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      {column.count}
+                    </Badge>
                   </div>
                   <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
                     <Plus className="w-4 h-4" />
@@ -369,7 +378,11 @@ export default function KanbanBoard() {
                     <Card key={task.id} className="bg-card border-border">
                       <CardContent className="p-4">
                         <div className="flex items-center gap-2 mb-3">
-                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
+                          <div
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(
+                              task.priority
+                            )}`}
+                          >
                             <span className="inline-block size-1.5 rounded-full bg-current/70" />
                             <span className="font-medium">{task.priority}</span>
                           </div>

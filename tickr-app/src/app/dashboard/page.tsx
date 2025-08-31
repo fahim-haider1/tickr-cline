@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -41,6 +41,7 @@ type Workspace = {
 const WS_STORAGE_KEY = "tickr:workspaces"
 
 export default function KanbanBoard() {
+  // --- demo board data (unchanged) ---
   const [columns] = useState<Column[]>([
     {
       id: "1",
@@ -164,6 +165,7 @@ export default function KanbanBoard() {
     },
   ])
 
+  // --- tint helper (unchanged) ---
   const getPriorityTint = (p: Task["priority"]) =>
     p === "High"
       ? "bg-destructive/15 text-destructive"
@@ -171,13 +173,26 @@ export default function KanbanBoard() {
       ? "bg-accent/15 text-accent-foreground"
       : "bg-secondary text-secondary-foreground"
 
+  // --- left sidebar collapse state (unchanged) ---
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const toggleSidebar = () => setSidebarCollapsed((s) => !s)
 
+  // --- right (secondary) sidebar state (opens ONLY from Users icon; no arrow; no partial width) ---
+  const [rightOpen, setRightOpen] = useState(false)
+  const openRight = () => setRightOpen(true)
+  const closeRight = () => setRightOpen(false)
+  const toggleRight = () => setRightOpen((o) => !o)
+
+  // --- workspaces (persisted to localStorage) ---
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === selectedWorkspaceId) ?? null,
+    [workspaces, selectedWorkspaceId]
+  )
+  const isPersonal = !!selectedWorkspace?.undeletable
 
-  // Load workspaces (ensure Personal Workspace exists and is undeletable)
+  // Ensure Personal Workspace exists and is default
   useEffect(() => {
     try {
       const raw = localStorage.getItem(WS_STORAGE_KEY)
@@ -197,12 +212,20 @@ export default function KanbanBoard() {
       if (!selectedWorkspaceId && parsed.length > 0) {
         setSelectedWorkspaceId(parsed[0].id)
       }
-    } catch {}
+    } catch {
+      // ignore
+    }
   }, [])
 
+  // Persist changes
   useEffect(() => {
     localStorage.setItem(WS_STORAGE_KEY, JSON.stringify(workspaces))
   }, [workspaces])
+
+  // Close secondary sidebar whenever switching to Personal
+  useEffect(() => {
+    if (isPersonal && rightOpen) setRightOpen(false)
+  }, [isPersonal, rightOpen])
 
   const addWorkspace = () => {
     const name = window.prompt("Workspace name?")
@@ -231,7 +254,7 @@ export default function KanbanBoard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* SIDEBAR */}
+      {/* PRIMARY SIDEBAR (LEFT) – unchanged */}
       <aside
         className={`fixed inset-y-0 left-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border
         transition-[width] duration-300 ease-in-out ${sidebarCollapsed ? "w-16" : "w-64"}`}
@@ -295,7 +318,6 @@ export default function KanbanBoard() {
               </div>
             ))}
 
-            {/* button is immediately below the list */}
             <Button
               onClick={addWorkspace}
               className="mt-2 w-full bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90"
@@ -306,8 +328,54 @@ export default function KanbanBoard() {
         </div>
       </aside>
 
-      {/* MAIN */}
-      <main className={`transition-[margin] duration-300 ease-in-out ${sidebarCollapsed ? "ml-16" : "ml-64"}`}>
+      {/* SECONDARY SIDEBAR (RIGHT) – no arrow, no partial visibility when closed */}
+      <aside
+        className={[
+          "fixed inset-y-0 right-0 bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-in-out overflow-hidden",
+          rightOpen ? "w-80 border-l border-sidebar-border" : "w-0 border-l-0",
+          isPersonal ? "pointer-events-none opacity-60" : "",
+        ].join(" ")}
+      >
+        {/* When closed, this is fully hidden. When open, full content appears. */}
+        <div className="h-full flex flex-col p-4 gap-4">
+          {/* header (no arrow) */}
+          {rightOpen && <span className="text-base font-semibold mx-auto">Members</span>}
+
+          {/* content */}
+          {rightOpen ? (
+            <div className="flex-1 overflow-y-auto space-y-3">
+              <div className="px-3 py-2 rounded-lg bg-sidebar/70 ring-1 ring-sidebar-border/50">
+                <div className="text-sm font-medium">John Doe</div>
+                <div className="text-xs text-muted-foreground">Admin</div>
+              </div>
+              <div className="px-3 py-2 rounded-lg hover:bg-sidebar/60">
+                <div className="text-sm font-medium">Jane Smith</div>
+                <div className="text-xs text-muted-foreground">Member</div>
+              </div>
+              <div className="px-3 py-2 rounded-lg hover:bg-sidebar/60">
+                <div className="text-sm font-medium">Alex Lee</div>
+                <div className="text-xs text-muted-foreground">Viewer</div>
+              </div>
+
+              <Button variant="outline" className="w-full mt-2">
+                Invite Member
+              </Button>
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
+        </div>
+      </aside>
+
+      {/* MAIN – left margin follows primary; right margin only when secondary is open */}
+      <main
+        className={[
+          "transition-[margin] duration-300 ease-in-out",
+          sidebarCollapsed ? "ml-16" : "ml-64",
+          // Right margin: only when right sidebar is open (and not Personal)
+          !isPersonal && rightOpen ? "mr-80" : "mr-0",
+        ].join(" ")}
+      >
         {/* top bar */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/60 backdrop-blur">
           <div className="flex items-center">
@@ -320,11 +388,18 @@ export default function KanbanBoard() {
             </Button>
             <div className="flex items-center gap-2">
               <span className="inline-block size-2 rounded-full bg-primary" />
-              <span className="text-sm">
-                {workspaces.find((w) => w.id === selectedWorkspaceId)?.name ?? "—"}
-              </span>
+              <span className="text-sm">{selectedWorkspace?.name ?? "—"}</span>
             </div>
-            <Users className="w-5 h-5 opacity-70" />
+
+            {/* Users icon opens/closes the secondary sidebar (disabled on Personal) */}
+            <button
+              onClick={() => !isPersonal && toggleRight()}
+              className={`rounded p-2 transition ${isPersonal ? "opacity-50 cursor-not-allowed" : "hover:bg-muted/40"}`}
+              aria-label="Open members panel"
+              title={isPersonal ? "Not available in Personal Workspace" : rightOpen ? "Close members" : "Open members"}
+            >
+              <Users className="w-5 h-5 opacity-70" />
+            </button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -333,7 +408,6 @@ export default function KanbanBoard() {
                 </Avatar>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {/* ✅ redirect to /sign-in after logout */}
                 <SignOutButton redirectUrl="/sign-in">
                   <DropdownMenuItem className="cursor-pointer">
                     <LogOut className="w-4 h-4 mr-2" />
@@ -345,7 +419,7 @@ export default function KanbanBoard() {
           </div>
         </header>
 
-        {/* welcome + add column */}
+        {/* welcome + add column (unchanged) */}
         <section className="p-6">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -358,7 +432,7 @@ export default function KanbanBoard() {
             </Button>
           </div>
 
-          {/* columns */}
+          {/* columns (unchanged) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {columns.map((column) => (
               <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">

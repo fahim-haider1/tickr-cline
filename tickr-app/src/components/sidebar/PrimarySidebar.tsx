@@ -1,198 +1,84 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Plus, ChevronRight, Pencil, Trash2 } from 'lucide-react'
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { ChevronRight, Plus } from "lucide-react"
+import { WorkspaceSelector } from "@/components/workspace-selector"
 
-interface SidebarWorkspace {
+interface WS {
   id: string
   name: string
-  isPersonal?: boolean
 }
-
-interface PrimarySidebarProps {
-  collapsed: boolean
-  onToggle: () => void
-  workspaces: SidebarWorkspace[]
+export interface PrimarySidebarProps {
   selectedWorkspaceId?: string
-  onSelect: (id: string) => void
-  onCreate: (name: string) => Promise<void> | void
-  onRename: (id: string, name: string) => Promise<void> | void
-  onDelete: (id: string) => Promise<void> | void
+  onWorkspaceSelect: (ws: WS | null) => void
+  onCreateWorkspace?: () => void
 }
 
-export function PrimarySidebar({
-  collapsed,
-  onToggle,
-  workspaces,
+export default function PrimarySidebar({
   selectedWorkspaceId,
-  onSelect,
-  onCreate,
-  onRename,
-  onDelete,
+  onWorkspaceSelect,
+  onCreateWorkspace,
 }: PrimarySidebarProps) {
-  const [showInput, setShowInput] = useState(false)
-  const [name, setName] = useState('')
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editName, setEditName] = useState('')
-  const [creating, setCreating] = useState(false)
-
-  const handleCreate = async () => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    setCreating(true)
-    try {
-      await onCreate(trimmed)
-      setName('')
-      setShowInput(false)
-    } finally {
-      setCreating(false)
-    }
-  }
+  const [open, setOpen] = useState(true)
+  const width = open ? 256 : 64
 
   return (
     <aside
-      className={`fixed left-0 top-0 h-screen ${collapsed ? 'w-16' : 'w-64'} border-r z-[999] transition-all duration-300 relative overflow-hidden flex flex-col`}
-      style={{
-        background: 'linear-gradient(180deg, rgb(13 16 28) 0%, rgb(13 14 24) 100%)',
-        borderColor: 'rgba(255,255,255,0.08)',
-      }}
+      className="fixed left-0 top-0 z-40 h-screen border-r bg-sidebar text-sidebar-foreground transition-[width] duration-300"
+      style={{ width, borderColor: "var(--sidebar-border)" }}
     >
-      <div className="p-4">
-        <div className="relative h-6 flex items-center mb-2">
-          {!collapsed && (
-            <h2 className="text-sm font-medium text-[oklch(0.85_0.02_280)] truncate">Workspaces</h2>
-          )}
-          <button
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-expanded={!collapsed}
-            onClick={onToggle}
-            className="absolute right-0 top-0 flex items-center justify-center rounded-md p-1 hover:bg-white/10 text-[oklch(0.85_0.02_280)]"
-            title={collapsed ? 'Expand' : 'Collapse'}
-          >
-            <ChevronRight className={`w-4 h-4 transition-transform ${collapsed ? '-rotate-180' : ''}`} />
-            <ChevronRight className={`w-4 h-4 -ml-1 transition-transform ${collapsed ? '-rotate-180' : ''}`} />
-          </button>
-        </div>
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <span className={`text-sm font-medium transition-opacity ${open ? "opacity-100" : "opacity-0"}`}>
+          Workspaces
+        </span>
+        <button
+          aria-label={open ? "Collapse sidebar" : "Expand sidebar"}
+          onClick={() => setOpen((v) => !v)}
+          className="rounded p-1 hover:bg-sidebar-accent/20"
+        >
+          <div className={`flex items-center ${open ? "rotate-180" : ""}`}>
+            <ChevronRight className="h-4 w-4 -mr-1" />
+            <ChevronRight className="h-4 w-4" />
+          </div>
+        </button>
       </div>
 
-      {/* Workspace list */}
-      {!collapsed && (
-        <div className="flex-1 overflow-y-auto px-4">
-          {workspaces.map((ws) => (
-            <div
-              key={ws.id}
-              role="button"
-              onClick={() => onSelect(ws.id)}
-              className={`group w-full px-3 py-2 rounded-md text-sm transition-colors flex items-center justify-between ${
-                selectedWorkspaceId === ws.id
-                  ? 'bg-white/10 text-white'
-                  : 'text-[oklch(0.85_0.02_280)] hover:text-white hover:bg-white/5'
-              }`}
-            >
-              {editingId === ws.id ? (
-                <input
-                  autoFocus
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={async (e) => {
-                    if (e.key === 'Enter') {
-                      await onRename(ws.id, editName)
-                      setEditingId(null)
-                      setEditName('')
-                    } else if (e.key === 'Escape') {
-                      setEditingId(null)
-                      setEditName('')
-                    }
-                  }}
-                  onBlur={async () => {
-                    if (!editName.trim()) { setEditingId(null); setEditName(''); return }
-                    await onRename(ws.id, editName)
-                    setEditingId(null)
-                    setEditName('')
-                  }}
-                  className="w-full bg-white/10 border-transparent text-white placeholder:text-white/60 rounded-md px-2 py-1 outline-none"
-                  placeholder="Workspace name"
-                />
-              ) : (
-                <span className="truncate mr-2">{ws.name}</span>
-              )}
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  className="p-1 rounded hover:bg-white/10"
-                  title="Rename"
-                  onClick={(e) => { e.stopPropagation(); setEditingId(ws.id); setEditName(ws.name) }}
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-                  className="p-1 rounded hover:bg-white/10"
-                  title="Delete"
-                  onClick={async (e) => {
-                    e.stopPropagation()
-                    const ok = window.confirm('Delete this workspace?')
-                    if (!ok) return
-                    await onDelete(ws.id)
-                  }}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
+      {/* Body */}
+      <div className="px-4">
+        {/* your existing workspace selector */}
+        <div className={`${open ? "block" : "hidden"} mb-4`}>
+          <WorkspaceSelector
+            onWorkspaceSelect={(ws) => onWorkspaceSelect(ws as unknown as WS | null)}
+            selectedWorkspaceId={selectedWorkspaceId}
+          />
         </div>
-      )}
 
-      {/* Create */}
-      <div className="p-4">
-        {collapsed ? (
-          <div className="flex items-center justify-center">
-            <Button
-              size="icon"
-              onClick={() => { onToggle(); setShowInput(true) }}
-              className="text-white"
-              style={{ background: '#ff1493' }}
-              aria-label="Add New Workspace"
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
+        {/* Static list just to mirror the mock (optional, safe to remove) */}
+        <div className={`${open ? "space-y-2" : "hidden"}`}>
+          <div className="rounded-lg px-3 py-2 text-sm" style={{ background: "var(--sidebar-accent)" }}>
+            <span className="text-sidebar-accent-foreground">Personal</span>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {showInput && (
-              <Input
-                autoFocus
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreate()
-                  if (e.key === 'Escape') { setShowInput(false); setName('') }
-                }}
-                onBlur={() => {
-                  if (!creating && !name.trim()) setShowInput(false)
-                }}
-                placeholder="Workspace name"
-                className="w-full bg-white/10 border-transparent text-white placeholder:text-white/60 focus-visible:ring-0 focus-visible:outline-none"
-              />
-            )}
-            <Button
-              onClick={() => {
-                if (!showInput) setShowInput(true)
-                else if (name.trim()) void handleCreate()
-              }}
-              disabled={creating}
-              className="w-full text-white disabled:opacity-60"
-              style={{ background: '#ff1493' }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add New Workspace
-            </Button>
+          <div className="cursor-default rounded-lg px-3 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent/10">
+            Work
           </div>
-        )}
+          <div className="cursor-default rounded-lg px-3 py-2 text-sm text-sidebar-foreground/70 hover:bg-sidebar-accent/10">
+            Project
+          </div>
+        </div>
+
+        {/* Create workspace */}
+        <div className={`${open ? "block" : "hidden"} pt-6`}>
+          <Button
+            onClick={onCreateWorkspace}
+            className="w-full bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add New Workspace
+          </Button>
+        </div>
       </div>
     </aside>
   )
 }
-

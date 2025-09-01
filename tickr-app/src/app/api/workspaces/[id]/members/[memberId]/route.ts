@@ -23,26 +23,32 @@ export async function PUT(
     const body = await request.json()
     const { role } = updateMemberSchema.parse(body)
 
-    // Check if user has admin rights
+    // Load workspace with members to enforce admin cap and permissions
     const workspace = await prisma.workspace.findFirst({
       where: {
-        id: id,
+        id,
         OR: [
           { ownerId: userId },
           { 
             members: { 
-              some: { 
-                userId,
-                role: 'ADMIN'
-              } 
+              some: { userId, role: 'ADMIN' }
             } 
           }
         ]
+      },
+      include: {
+        members: {
+          select: { id: true, userId: true, role: true }
+        }
       }
     })
 
     if (!workspace) {
       return NextResponse.json({ error: 'Workspace not found or insufficient permissions' }, { status: 404 })
+    }
+
+    if (workspace.isPersonal) {
+      return NextResponse.json({ error: 'Cannot change roles in a personal workspace' }, { status: 400 })
     }
 
     // Find the member to update
@@ -68,6 +74,22 @@ export async function PUT(
     if (workspace.ownerId === member.userId) {
       return NextResponse.json({ error: 'Cannot update workspace owner role' }, { status: 400 })
     }
+
+    // ----- Enforce max 2 admins (owner counts) -----
+    if (role === 'ADMIN') {
+      const hasOwnerMember = workspace.members.some(m => m.userId === workspace.ownerId)
+      const currentAdmins = workspace.members.filter(m => m.role === 'ADMIN')
+      const currentAdminCount = currentAdmins.length + (hasOwnerMember ? 0 : 1)
+
+      // If the member is already ADMIN, this change is a no-op for the cap
+      const newAdminCount =
+        currentAdminCount - (member.role === 'ADMIN' ? 1 : 0) + 1
+
+      if (newAdminCount > 2) {
+        return NextResponse.json({ error: 'Maximum 2 admins allowed in this workspace' }, { status: 400 })
+      }
+    }
+    // ----------------------------------------------
 
     // Update member role
     const updatedMember = await prisma.workspaceMember.update({
@@ -146,7 +168,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot remove workspace owner' }, { status: 400 })
     }
 
-    // Allow users to remove themselves
+    // Allow users to remove themselves, or owner/admins to remove others
     const canRemove = workspace.ownerId === userId || 
                      member.userId === userId ||
                      await prisma.workspaceMember.findFirst({

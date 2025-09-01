@@ -56,7 +56,7 @@ export async function GET(
       }
     })
 
-    // Add owner as member if not already included
+    // Add owner as member if not already included (owner is effectively ADMIN)
     const owner = await prisma.user.findUnique({
       where: { id: workspace.ownerId },
       select: {
@@ -105,26 +105,33 @@ export async function POST(
     const body = await request.json()
     const { email, role } = inviteMemberSchema.parse(body)
 
-    // Check if user has admin rights
+    // Load workspace with members to enforce limits
     const workspace = await prisma.workspace.findFirst({
       where: {
-        id: id,
+        id,
         OR: [
           { ownerId: userId },
           { 
             members: { 
-              some: { 
-                userId,
-                role: 'ADMIN'
-              } 
+              some: { userId, role: 'ADMIN' }
             } 
           }
         ]
+      },
+      include: {
+        members: {
+          select: { id: true, userId: true, role: true }
+        }
       }
     })
 
     if (!workspace) {
       return NextResponse.json({ error: 'Workspace not found or insufficient permissions' }, { status: 404 })
+    }
+
+    // Disallow inviting to personal workspaces
+    if (workspace.isPersonal) {
+      return NextResponse.json({ error: 'Cannot add members to a personal workspace' }, { status: 400 })
     }
 
     // Find user by email
@@ -142,22 +149,31 @@ export async function POST(
       return NextResponse.json({ error: 'User not found. User must sign up first.' }, { status: 404 })
     }
 
-    // Check if user is already a member
-    const existingMember = await prisma.workspaceMember.findFirst({
-      where: {
-        workspaceId: id,
-        userId: invitedUser.id
-      }
-    })
-
+    // Check if already a member or owner
+    if (invitedUser.id === workspace.ownerId) {
+      return NextResponse.json({ error: 'User is already the owner of this workspace' }, { status: 400 })
+    }
+    const existingMember = workspace.members.find(m => m.userId === invitedUser.id)
     if (existingMember) {
       return NextResponse.json({ error: 'User is already a member of this workspace' }, { status: 400 })
     }
 
-    // Check if user is the owner
-    if (workspace.ownerId === invitedUser.id) {
-      return NextResponse.json({ error: 'User is already the owner of this workspace' }, { status: 400 })
+    // ----- Enforce limits -----
+    // Count members including owner (owner may or may not exist in members table)
+    const hasOwnerMember = workspace.members.some(m => m.userId === workspace.ownerId)
+    const currentMemberCountIncludingOwner = workspace.members.length + (hasOwnerMember ? 0 : 1)
+    if (currentMemberCountIncludingOwner >= 5) {
+      return NextResponse.json({ error: 'Maximum 5 members reached for this workspace' }, { status: 400 })
     }
+
+    // Enforce max 2 admins total (owner counts as admin)
+    if (role === 'ADMIN') {
+      const currentAdminCount = workspace.members.filter(m => m.role === 'ADMIN').length + (hasOwnerMember ? 0 : 1)
+      if (currentAdminCount >= 2) {
+        return NextResponse.json({ error: 'Maximum 2 admins allowed in this workspace' }, { status: 400 })
+      }
+    }
+    // --------------------------
 
     // Add member to workspace
     const newMember = await prisma.workspaceMember.create({

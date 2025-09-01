@@ -18,7 +18,7 @@
     "@clerk/nextjs": "^6.31.6",
     "@clerk/shared": "^3.23.0",
     "@clerk/types": "^4.83.0",
-    "@hello-pangea/dnd": "^16.5.0",
+    "@hello-pangea/dnd": "^16.6.0",
     "@hookform/resolvers": "^3.3.2",
     "@prisma/client": "6.15.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",

@@ -34,6 +34,16 @@ import {
 } from "lucide-react"
 import { SignOutButton } from "@clerk/nextjs"
 
+// ➕ NEW: dialog imports
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+
 // ---- DB-backed types ----
 type Subtask = { id: string; title: string; completed: boolean }
 type Task = {
@@ -89,6 +99,14 @@ export default function KanbanBoard() {
   const [members, setMembers] = useState<Member[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState<string>("")
+
+  // ➕ NEW: Task dialog state
+  const [taskDialogOpen, setTaskDialogOpen] = useState(false)
+  const [taskTargetColumnId, setTaskTargetColumnId] = useState<string | null>(null)
+  const [taskTitle, setTaskTitle] = useState("")
+  const [taskPriority, setTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM")
+  const [taskDescription, setTaskDescription] = useState("")
+  const [taskSaving, setTaskSaving] = useState(false)
 
   const MAX_MEMBERS = 5
   const remainingSlots = useMemo(() => Math.max(0, MAX_MEMBERS - members.length), [members.length])
@@ -177,21 +195,22 @@ export default function KanbanBoard() {
   }, [])
 
   // Load columns & tasks for the selected workspace
-  useEffect(() => {
-    const loadColumns = async () => {
-      if (!selectedWorkspaceId) return
-      const res = await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
-        cache: "no-store",
-        credentials: "include",
-      })
-      if (!res.ok) {
-        setColumns([])
-        return
-      }
-      const data: Column[] = await res.json()
-      setColumns(data)
+  const reloadColumns = async (workspaceId: string) => {
+    const res = await fetch(`/api/workspaces/${workspaceId}/columns`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+    if (!res.ok) {
+      setColumns([])
+      return
     }
-    loadColumns()
+    const data: Column[] = await res.json()
+    setColumns(data)
+  }
+
+  useEffect(() => {
+    if (!selectedWorkspaceId) return
+    reloadColumns(selectedWorkspaceId)
   }, [selectedWorkspaceId])
 
   // Create workspace (non-personal)
@@ -276,14 +295,47 @@ export default function KanbanBoard() {
       alert(`Failed to create column: ${res.status} ${msg || ""}`)
       return
     }
-    // reload columns
-    const again = await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
-      cache: "no-store",
-      credentials: "include",
-    })
-    if (again.ok) {
-      const data: Column[] = await again.json()
-      setColumns(data)
+    reloadColumns(selectedWorkspaceId)
+  }
+
+  // ➕ NEW: open/close task dialog
+  const openTaskDialogFor = (columnId: string) => {
+    setTaskTargetColumnId(columnId)
+    setTaskTitle("")
+    setTaskPriority("MEDIUM")
+    setTaskDescription("")
+    setTaskDialogOpen(true)
+  }
+  const closeTaskDialog = () => {
+    setTaskDialogOpen(false)
+    setTaskTargetColumnId(null)
+  }
+
+  // ➕ NEW: create task (DB)
+  const createTask = async () => {
+    if (!taskTitle.trim() || !taskTargetColumnId || !selectedWorkspaceId) return
+    setTaskSaving(true)
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          columnId: taskTargetColumnId,
+          title: taskTitle.trim(),
+          description: taskDescription.trim() || undefined,
+          priority: taskPriority, // "LOW" | "MEDIUM" | "HIGH"
+        }),
+      })
+      if (!res.ok) {
+        const msg = await res.text().catch(() => "")
+        alert(`Failed to create task: ${res.status} ${msg || ""}`)
+        return
+      }
+      await reloadColumns(selectedWorkspaceId)
+      closeTaskDialog()
+    } finally {
+      setTaskSaving(false)
     }
   }
 
@@ -295,7 +347,7 @@ export default function KanbanBoard() {
       ? "bg-accent/15 text-accent-foreground"
       : "bg-secondary text-secondary-foreground"
 
-  // ===== UI (unchanged except: board is DB-backed) =====
+  // ===== UI (unchanged except: task dialog + column “+” wired) =====
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* PRIMARY SIDEBAR (LEFT) */}
@@ -430,7 +482,13 @@ export default function KanbanBoard() {
                     <span className="text-sm font-medium">{column.name}</span>
                     <Badge variant="secondary" className="text-xs">{column.tasks?.length ?? 0}</Badge>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground"
+                    onClick={() => openTaskDialogFor(column.id)}
+                    aria-label="Add task"
+                  >
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
@@ -463,7 +521,6 @@ export default function KanbanBoard() {
                                 id={`sub-${task.id}-${sub.id}`}
                                 checked={sub.completed}
                                 className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                // read-only visual for now
                                 onClick={(e) => e.preventDefault()}
                               />
                               <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
@@ -645,6 +702,63 @@ export default function KanbanBoard() {
           )}
         </div>
       </aside>
+
+      {/* ➕ NEW: Create Task Dialog */}
+      <Dialog open={taskDialogOpen} onOpenChange={(open) => (open ? setTaskDialogOpen(true) : closeTaskDialog())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create Task</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="task-title">Title *</Label>
+              <Input
+                id="task-title"
+                value={taskTitle}
+                onChange={(e) => setTaskTitle(e.target.value)}
+                placeholder="Task title"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <Select value={taskPriority} onValueChange={(v: "LOW" | "MEDIUM" | "HIGH") => setTaskPriority(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">Low</SelectItem>
+                    <SelectItem value="MEDIUM">Medium</SelectItem>
+                    <SelectItem value="HIGH">High</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="task-desc">Description</Label>
+              <Textarea
+                id="task-desc"
+                rows={3}
+                value={taskDescription}
+                onChange={(e) => setTaskDescription(e.target.value)}
+                placeholder="Optional description"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={closeTaskDialog}>
+              Cancel
+            </Button>
+            <Button onClick={createTask} disabled={taskSaving || !taskTitle.trim()}>
+              {taskSaving ? "Creating..." : "Create Task"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

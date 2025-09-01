@@ -34,19 +34,19 @@ import {
 } from "lucide-react"
 import { SignOutButton } from "@clerk/nextjs"
 
+// ---- DB-backed types ----
+type Subtask = { id: string; title: string; completed: boolean }
 type Task = {
   id: string
   title: string
-  subtitle: string
-  priority: "High" | "Medium" | "Low"
-  progress: number
-  subtasks: { id: string; label: string; completed: boolean }[]
+  description?: string | null
+  priority: "LOW" | "MEDIUM" | "HIGH"
+  subtasks?: Subtask[]
 }
-
 type Column = {
   id: string
-  title: string
-  count: number
+  name: string
+  order: number
   tasks: Task[]
 }
 
@@ -55,7 +55,6 @@ type Workspace = {
   name: string
   isPersonal?: boolean
 }
-
 type WorkspaceUI = Workspace & { undeletable?: boolean }
 
 type Member = {
@@ -66,137 +65,6 @@ type Member = {
 }
 
 export default function KanbanBoard() {
-  // ----- Demo board data (unchanged) -----
-  const [columns] = useState<Column[]>([
-    {
-      id: "1",
-      title: "To do",
-      count: 3,
-      tasks: [
-        {
-          id: "1",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 75,
-          subtasks: [
-            { id: "1", label: "Install Packages", completed: true },
-            { id: "2", label: "Setup Schema", completed: false },
-          ],
-        },
-        {
-          id: "2",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 45,
-          subtasks: [
-            { id: "3", label: "Install Packages", completed: true },
-            { id: "4", label: "Setup Schema", completed: false },
-          ],
-        },
-        {
-          id: "3",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 60,
-          subtasks: [
-            { id: "5", label: "Install Packages", completed: true },
-            { id: "6", label: "Setup Schema", completed: false },
-          ],
-        },
-      ],
-    },
-    {
-      id: "2",
-      title: "To do",
-      count: 3,
-      tasks: [
-        {
-          id: "4",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 30,
-          subtasks: [
-            { id: "7", label: "Install Packages", completed: true },
-            { id: "8", label: "Setup Schema", completed: false },
-          ],
-        },
-        {
-          id: "5",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "Medium",
-          progress: 80,
-          subtasks: [
-            { id: "9", label: "Install Packages", completed: true },
-            { id: "10", label: "Setup Schema", completed: false },
-          ],
-        },
-        {
-          id: "6",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 90,
-          subtasks: [
-            { id: "11", label: "Install Packages", completed: true },
-            { id: "12", label: "Setup Schema", completed: false },
-          ],
-        },
-      ],
-    },
-    {
-      id: "3",
-      title: "To do",
-      count: 3,
-      tasks: [
-        {
-          id: "7",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 25,
-          subtasks: [
-            { id: "13", label: "Install Packages", completed: true },
-            { id: "14", label: "Setup Schema", completed: false },
-          ],
-        },
-        {
-          id: "8",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "High",
-          progress: 55,
-          subtasks: [
-            { id: "15", label: "Install Packages", completed: true },
-            { id: "16", label: "Setup Schema", completed: false },
-          ],
-        },
-        {
-          id: "9",
-          title: "Setup Database",
-          subtitle: "Configure PRISMA and PostgreSQL",
-          priority: "Low",
-          progress: 70,
-          subtasks: [
-            { id: "17", label: "Install Packages", completed: true },
-            { id: "18", label: "Setup Schema", completed: false },
-          ],
-        },
-      ],
-    },
-  ])
-
-  const getPriorityTint = (p: Task["priority"]) =>
-    p === "High"
-      ? "bg-destructive/15 text-destructive"
-      : p === "Medium"
-      ? "bg-accent/15 text-accent-foreground"
-      : "bg-secondary text-secondary-foreground"
-
   // ----- Primary sidebar -----
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const toggleSidebar = () => setSidebarCollapsed((s) => !s)
@@ -204,6 +72,9 @@ export default function KanbanBoard() {
   // ----- Workspaces (via API) -----
   const [workspaces, setWorkspaces] = useState<WorkspaceUI[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
+
+  // ----- Columns/Tasks (DB) -----
+  const [columns, setColumns] = useState<Column[]>([])
 
   // ----- Secondary sidebar -----
   const [rightOpen, setRightOpen] = useState(false)
@@ -267,19 +138,19 @@ export default function KanbanBoard() {
   // ===== Workspace API wiring =====
   useEffect(() => {
     const load = async () => {
-      const res = await fetch("/api/workspaces", { cache: "no-store" })
+      const res = await fetch("/api/workspaces", { cache: "no-store", credentials: "include" })
       if (!res.ok) return
       const data: Workspace[] = await res.json()
 
       if (data.length === 0) {
-        // create a default Personal Workspace, then reload
         const created = await fetch("/api/workspaces", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ name: "Personal Workspace" }),
         })
         if (created.ok) {
-          const again = await fetch("/api/workspaces", { cache: "no-store" })
+          const again = await fetch("/api/workspaces", { cache: "no-store", credentials: "include" })
           const list: Workspace[] = again.ok ? await again.json() : []
           setWorkspaces(
             list.map((w) => ({
@@ -305,7 +176,25 @@ export default function KanbanBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ✅ FIXED addWorkspace: save to DB then reload list
+  // Load columns & tasks for the selected workspace
+  useEffect(() => {
+    const loadColumns = async () => {
+      if (!selectedWorkspaceId) return
+      const res = await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
+        cache: "no-store",
+        credentials: "include",
+      })
+      if (!res.ok) {
+        setColumns([])
+        return
+      }
+      const data: Column[] = await res.json()
+      setColumns(data)
+    }
+    loadColumns()
+  }, [selectedWorkspaceId])
+
+  // Create workspace (non-personal)
   const addWorkspace = async () => {
     const name = window.prompt("Workspace name?")
     if (!name) return
@@ -313,27 +202,32 @@ export default function KanbanBoard() {
     const res = await fetch("/api/workspaces", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ name: name.trim() }),
     })
 
-    if (res.ok) {
-      const again = await fetch("/api/workspaces", { cache: "no-store" })
-      const list: Workspace[] = again.ok ? await again.json() : []
-
-      setWorkspaces(
-        list.map((w) => ({
-          ...w,
-          undeletable: w.isPersonal || w.name === "Personal Workspace",
-        }))
-      )
-
-      if (!selectedWorkspaceId && list.length > 0) {
-        setSelectedWorkspaceId(list[list.length - 1].id)
-      }
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "")
+      alert(`Failed to create workspace: ${res.status} ${msg || ""}`)
+      return
     }
+
+    const again = await fetch("/api/workspaces", { cache: "no-store", credentials: "include" })
+    if (!again.ok) return
+    const list: Workspace[] = await again.json()
+
+    setWorkspaces(
+      list.map((w) => ({
+        ...w,
+        undeletable: w.isPersonal || w.name === "Personal Workspace",
+      }))
+    )
+
+    const last = list[list.length - 1]
+    if (last) setSelectedWorkspaceId(last.id)
   }
 
-  // 3) Edit workspace
+  // Edit workspace (blocked for personal)
   const editWorkspace = async (id: string) => {
     const current = workspaces.find((w) => w.id === id)
     if (!current || current.undeletable) return
@@ -351,7 +245,7 @@ export default function KanbanBoard() {
     }
   }
 
-  // 4) Delete workspace
+  // Delete workspace (blocked for personal)
   const deleteWorkspace = async (id: string) => {
     const current = workspaces.find((w) => w.id === id)
     if (!current || current.undeletable) return
@@ -366,7 +260,42 @@ export default function KanbanBoard() {
 
   const isPersonal = workspaces.find((w) => w.id === selectedWorkspaceId)?.undeletable
 
-  // ===== UI (unchanged) =====
+  // Add Column (DB)
+  const addColumn = async () => {
+    if (!selectedWorkspaceId) return
+    const name = window.prompt("Column name?")
+    if (!name?.trim()) return
+    const res = await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ name: name.trim() }),
+    })
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "")
+      alert(`Failed to create column: ${res.status} ${msg || ""}`)
+      return
+    }
+    // reload columns
+    const again = await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+    if (again.ok) {
+      const data: Column[] = await again.json()
+      setColumns(data)
+    }
+  }
+
+  // Priority badge tint
+  const getPriorityTint = (p: Task["priority"]) =>
+    p === "HIGH"
+      ? "bg-destructive/15 text-destructive"
+      : p === "MEDIUM"
+      ? "bg-accent/15 text-accent-foreground"
+      : "bg-secondary text-secondary-foreground"
+
+  // ===== UI (unchanged except: board is DB-backed) =====
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* PRIMARY SIDEBAR (LEFT) */}
@@ -486,52 +415,59 @@ export default function KanbanBoard() {
               <h1 className="text-2xl font-semibold mb-2">Welcome Back</h1>
               <p className="text-muted-foreground">Here's what's happening with your projects today</p>
             </div>
-            <Button className="bg-primary text-primary-foreground hover:opacity-90">
+            <Button className="bg-primary text-primary-foreground hover:opacity-90" onClick={addColumn}>
               <Plus className="w-4 h-4 mr-2" />
               Add Column
             </Button>
           </div>
 
-          {/* columns */}
+          {/* columns (DB-backed) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {columns.map((column) => (
               <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{column.title}</span>
-                    <Badge variant="secondary" className="text-xs">{column.count}</Badge>
+                    <span className="text-sm font-medium">{column.name}</span>
+                    <Badge variant="secondary" className="text-xs">{column.tasks?.length ?? 0}</Badge>
                   </div>
                   <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
+
                 <div className="space-y-3">
-                  {column.tasks.map((task) => (
+                  {(column.tasks ?? []).map((task) => (
                     <Card key={task.id} className="bg-card border-border">
                       <CardContent className="p-4">
+                        {/* priority */}
                         <div className="flex items-center gap-2 mb-3">
                           <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
                             <span className="inline-block size-1.5 rounded-full bg-current/70" />
-                            <span className="font-medium">{task.priority}</span>
+                            <span className="font-medium">
+                              {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
+                            </span>
                           </div>
                         </div>
+
+                        {/* title + description */}
                         <h3 className="font-medium mb-1">{task.title}</h3>
-                        <p className="text-sm text-muted-foreground mb-3">{task.subtitle}</p>
-                        <div className="mb-4">
-                          <div className="w-full h-1 rounded-full bg-muted">
-                            <div className="h-1 rounded-full bg-primary" style={{ width: `${task.progress}%` }} />
-                          </div>
-                        </div>
+                        {task.description && (
+                          <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
+                        )}
+
+                        {/* subtasks (if any) */}
                         <div className="space-y-2">
-                          {task.subtasks.map((sub) => (
+                          {(task.subtasks ?? []).map((sub) => (
                             <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
                               <Checkbox
                                 id={`sub-${task.id}-${sub.id}`}
                                 checked={sub.completed}
                                 className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                // read-only visual for now
+                                onClick={(e) => e.preventDefault()}
                               />
                               <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
-                                {sub.label}
+                                {sub.title}
                               </span>
                             </label>
                           ))}
@@ -542,6 +478,13 @@ export default function KanbanBoard() {
                 </div>
               </div>
             ))}
+
+            {/* Empty-state helper */}
+            {columns.length === 0 && (
+              <div className="text-sm text-muted-foreground">
+                No columns yet. Use “Add Column” to create one.
+              </div>
+            )}
           </div>
         </section>
       </main>

@@ -8,12 +8,12 @@ export const dynamic = "force-dynamic"
 // GET /api/workspaces/[id]/columns - list columns (and seed Todo/Done if missing)
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = getAuth(req as any)
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const workspaceId = params.id
+  const { id: workspaceId } = await params
 
   // Ensure the user has access (owner or member)
   const workspace = await prisma.workspace.findFirst({
@@ -31,12 +31,8 @@ export async function GET(
   const count = await prisma.column.count({ where: { workspaceId } })
   if (count === 0) {
     await prisma.$transaction([
-      prisma.column.create({
-        data: { name: "Todo", order: 0, workspaceId },
-      }),
-      prisma.column.create({
-        data: { name: "Done", order: 1, workspaceId },
-      }),
+      prisma.column.create({ data: { name: "Todo", order: 0, workspaceId } }),
+      prisma.column.create({ data: { name: "Done", order: 1, workspaceId } }),
     ])
   }
 
@@ -60,12 +56,12 @@ export async function GET(
 // POST /api/workspaces/[id]/columns - create a new column
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const { userId } = getAuth(req as any)
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const workspaceId = params.id
+  const { id: workspaceId } = await params
   const body = await req.json()
   const name = (body?.name ?? "").toString().trim()
   if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 })

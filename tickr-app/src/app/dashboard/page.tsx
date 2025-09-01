@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
+import UserSync from "@/components/UserSync"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +35,6 @@ import {
 } from "lucide-react"
 import { SignOutButton } from "@clerk/nextjs"
 
-// ➕ dialog imports (kept)
 import {
   Dialog,
   DialogContent,
@@ -44,7 +44,6 @@ import {
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 
-/* ➕ NEW: drag & drop */
 import {
   DragDropContext,
   Droppable,
@@ -52,7 +51,6 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd"
 
-// ---- DB-backed types ----
 type Subtask = { id: string; title: string; completed: boolean }
 type Task = {
   id: string
@@ -83,38 +81,34 @@ type Member = {
 }
 
 export default function KanbanBoard() {
-  // ----- Primary sidebar -----
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const toggleSidebar = () => setSidebarCollapsed((s) => !s)
 
-  // ----- Workspaces (via API) -----
   const [workspaces, setWorkspaces] = useState<WorkspaceUI[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
 
-  // ----- Columns/Tasks (DB) -----
   const [columns, setColumns] = useState<Column[]>([])
 
-  // ----- Secondary sidebar -----
   const [rightOpen, setRightOpen] = useState(false)
   const openRight = () => setRightOpen(true)
   const closeRight = () => setRightOpen(false)
 
-  // ----- Invite form -----
   const [inviteEmail, setInviteEmail] = useState("")
   const [inviteRole, setInviteRole] = useState<"admin" | "member" | "viewer">("member")
 
-  // ----- Members list -----
   const [members, setMembers] = useState<Member[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState<string>("")
 
-  // ➕ Task dialog state (kept)
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [taskTargetColumnId, setTaskTargetColumnId] = useState<string | null>(null)
   const [taskTitle, setTaskTitle] = useState("")
   const [taskPriority, setTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM")
   const [taskDescription, setTaskDescription] = useState("")
   const [taskSaving, setTaskSaving] = useState(false)
+
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
+  const [editColumnName, setEditColumnName] = useState<string>("")
 
   const MAX_MEMBERS = 5
   const remainingSlots = useMemo(() => Math.max(0, MAX_MEMBERS - members.length), [members.length])
@@ -161,7 +155,6 @@ export default function KanbanBoard() {
     setMembers((prev) => prev.filter((m) => m.id !== id))
   }
 
-  // ===== Workspace API wiring (kept) =====
   useEffect(() => {
     const load = async () => {
       const res = await fetch("/api/workspaces", { cache: "no-store", credentials: "include" })
@@ -202,7 +195,6 @@ export default function KanbanBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load columns & tasks for the selected workspace (kept)
   const reloadColumns = async (workspaceId: string) => {
     const res = await fetch(`/api/workspaces/${workspaceId}/columns`, {
       cache: "no-store",
@@ -221,7 +213,6 @@ export default function KanbanBoard() {
     reloadColumns(selectedWorkspaceId)
   }, [selectedWorkspaceId])
 
-  // Create workspace (kept)
   const addWorkspace = async () => {
     const name = window.prompt("Workspace name?")
     if (!name) return
@@ -254,7 +245,6 @@ export default function KanbanBoard() {
     if (last) setSelectedWorkspaceId(last.id)
   }
 
-  // Edit workspace (kept)
   const editWorkspace = async (id: string) => {
     const current = workspaces.find((w) => w.id === id)
     if (!current || current.undeletable) return
@@ -272,7 +262,6 @@ export default function KanbanBoard() {
     }
   }
 
-  // Delete workspace (kept)
   const deleteWorkspace = async (id: string) => {
     const current = workspaces.find((w) => w.id === id)
     if (!current || current.undeletable) return
@@ -287,7 +276,6 @@ export default function KanbanBoard() {
 
   const isPersonal = workspaces.find((w) => w.id === selectedWorkspaceId)?.undeletable
 
-  // Add Column (kept)
   const addColumn = async () => {
     if (!selectedWorkspaceId) return
     const name = window.prompt("Column name?")
@@ -306,7 +294,31 @@ export default function KanbanBoard() {
     reloadColumns(selectedWorkspaceId)
   }
 
-  // ➕ open/close task dialog (kept)
+  async function renameColumn(columnId: string, name: string) {
+    if (!selectedWorkspaceId || !name.trim()) {
+      setEditingColumnId(null)
+      return
+    }
+    await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ columnId, name }),
+    })
+    await reloadColumns(selectedWorkspaceId)
+    setEditingColumnId(null)
+  }
+
+  async function deleteColumn(columnId: string) {
+    if (!selectedWorkspaceId) return
+    const ok = window.confirm("Delete this column?")
+    if (!ok) return
+    await fetch(`/api/workspaces/${selectedWorkspaceId}/columns?columnId=${columnId}`, {
+      method: "DELETE",
+      credentials: "include", // ✅ send Clerk cookies
+    })
+    await reloadColumns(selectedWorkspaceId)
+  }
+
   const openTaskDialogFor = (columnId: string) => {
     setTaskTargetColumnId(columnId)
     setTaskTitle("")
@@ -319,7 +331,6 @@ export default function KanbanBoard() {
     setTaskTargetColumnId(null)
   }
 
-  // ➕ create task (kept)
   const createTask = async () => {
     if (!taskTitle.trim() || !taskTargetColumnId || !selectedWorkspaceId) return
     setTaskSaving(true)
@@ -332,7 +343,7 @@ export default function KanbanBoard() {
           columnId: taskTargetColumnId,
           title: taskTitle.trim(),
           description: taskDescription.trim() || undefined,
-          priority: taskPriority, // "LOW" | "MEDIUM" | "HIGH"
+          priority: taskPriority,
         }),
       })
       if (!res.ok) {
@@ -347,7 +358,6 @@ export default function KanbanBoard() {
     }
   }
 
-  // Priority badge tint (kept)
   const getPriorityTint = (p: Task["priority"]) =>
     p === "HIGH"
       ? "bg-destructive/15 text-destructive"
@@ -355,7 +365,6 @@ export default function KanbanBoard() {
       ? "bg-accent/15 text-accent-foreground"
       : "bg-secondary text-secondary-foreground"
 
-  /* ➕ NEW: DnD handler (optimistic; persists to /api/tasks/move) */
   const onDragEnd = useCallback(
     async (result: DropResult) => {
       const { destination, source, draggableId } = result
@@ -368,7 +377,6 @@ export default function KanbanBoard() {
 
       if (fromColId === toColId && fromIndex === toIndex) return
 
-      // optimistic UI
       setColumns((prev) => {
         const copy = prev.map((c) => ({ ...c, tasks: [...(c.tasks ?? [])] }))
         const fromCol = copy.find((c) => c.id === fromColId)
@@ -381,7 +389,6 @@ export default function KanbanBoard() {
         return copy
       })
 
-      // persist
       const res = await fetch("/api/tasks/move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -390,16 +397,17 @@ export default function KanbanBoard() {
       })
 
       if (!res.ok && selectedWorkspaceId) {
-        // rollback: reload from server
         await reloadColumns(selectedWorkspaceId)
       }
     },
     [selectedWorkspaceId]
   )
 
-  // ===== UI =====
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* 🔽 ensure new users are synced to DB */}
+      <UserSync />
+
       {/* PRIMARY SIDEBAR (LEFT) */}
       <aside
         className={`fixed inset-y-0 left-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border
@@ -472,7 +480,6 @@ export default function KanbanBoard() {
           sidebarCollapsed ? "ml-16" : "ml-64"
         } ${rightOpen ? "mr-80" : "mr-0"}`}
       >
-        {/* top bar */}
         <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/60 backdrop-blur">
           <div className="flex items-center">
             <img src="/Group 5 (2).svg" alt="Tickr" className="h-6 w-auto" />
@@ -510,7 +517,6 @@ export default function KanbanBoard() {
           </div>
         </header>
 
-        {/* welcome + add column */}
         <section className="p-6">
           <div className="flex items-center justify-between mb-8">
             <div>
@@ -523,25 +529,56 @@ export default function KanbanBoard() {
             </Button>
           </div>
 
-          {/* columns (DB-backed) + DnD */}
           <DragDropContext onDragEnd={onDragEnd}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {columns.map((column) => (
                 <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{column.name}</span>
+                      {editingColumnId === column.id ? (
+                        <Input
+                          value={editColumnName}
+                          onChange={(e) => setEditColumnName(e.target.value)}
+                          onBlur={() => renameColumn(column.id, editColumnName)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") renameColumn(column.id, editColumnName)
+                          }}
+                          className="h-7"
+                          autoFocus
+                        />
+                      ) : (
+                        <span
+                          className="text-sm font-medium cursor-pointer"
+                          onClick={() => {
+                            setEditingColumnId(column.id)
+                            setEditColumnName(column.name)
+                          }}
+                        >
+                          {column.name}
+                        </span>
+                      )}
                       <Badge variant="secondary" className="text-xs">{column.tasks?.length ?? 0}</Badge>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground hover:text-foreground"
-                      onClick={() => openTaskDialogFor(column.id)}
-                      aria-label="Add task"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => openTaskDialogFor(column.id)}
+                        aria-label="Add task"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-red-500 hover:text-red-600 h-7 w-7"
+                        onClick={() => deleteColumn(column.id)}
+                        aria-label="Delete column"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
 
                   <Droppable droppableId={column.id} type="TASK">
@@ -562,7 +599,6 @@ export default function KanbanBoard() {
                               >
                                 <Card className="bg-card border-border">
                                   <CardContent className="p-4">
-                                    {/* priority */}
                                     <div className="flex items-center gap-2 mb-3">
                                       <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
                                         <span className="inline-block size-1.5 rounded-full bg-current/70" />
@@ -572,13 +608,11 @@ export default function KanbanBoard() {
                                       </div>
                                     </div>
 
-                                    {/* title + description */}
                                     <h3 className="font-medium mb-1">{task.title}</h3>
                                     {task.description && (
                                       <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
                                     )}
 
-                                    {/* subtasks (if any) */}
                                     <div className="space-y-2">
                                       {(task.subtasks ?? []).map((sub) => (
                                         <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
@@ -607,7 +641,6 @@ export default function KanbanBoard() {
                 </div>
               ))}
 
-              {/* Empty-state helper */}
               {columns.length === 0 && (
                 <div className="text-sm text-muted-foreground">
                   No columns yet. Use “Add Column” to create one.
@@ -618,7 +651,6 @@ export default function KanbanBoard() {
         </section>
       </main>
 
-      {/* SECONDARY SIDEBAR (RIGHT) */}
       <aside
         className={[
           "fixed inset-y-0 right-0 bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-in-out overflow-hidden",
@@ -775,7 +807,6 @@ export default function KanbanBoard() {
         </div>
       </aside>
 
-      {/* Create Task Dialog (kept) */}
       <Dialog open={taskDialogOpen} onOpenChange={(open) => (open ? setTaskDialogOpen(true) : closeTaskDialog())}>
         <DialogContent>
           <DialogHeader>

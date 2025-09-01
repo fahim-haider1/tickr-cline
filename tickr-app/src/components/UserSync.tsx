@@ -1,44 +1,40 @@
 // src/components/UserSync.tsx
-
 'use client';
 
 import { useUser } from '@clerk/nextjs';
 import { useEffect, useRef } from 'react';
 
-export function UserSync() {
+export default function UserSync() {
   const { user, isLoaded } = useUser();
   const syncedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (isLoaded && user && !syncedRef.current.has(user.id)) {
-      console.log('Syncing user with database...', user.id);
-      
-      // Mark this user as being synced to prevent duplicate calls
-      syncedRef.current.add(user.id);
-      
-      // Sync user with our database
-      fetch('/api/sync-user', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`Sync failed: ${response.status}`);
-          }
-          return response.json();
-        })
-        .then(data => {
-          console.log('User sync successful:', user.id);
-        })
-        .catch(error => {
-          console.error('Failed to sync user:', error);
-          // Remove from synced set if sync failed, so it can be retried
-          syncedRef.current.delete(user.id);
+    if (!isLoaded || !user) return;
+    if (syncedRef.current.has(user.id)) return;
+
+    console.log('Syncing user with database...', user.id);
+    syncedRef.current.add(user.id);
+
+    (async () => {
+      try {
+        const res = await fetch('/api/sync-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',   // ensure Clerk cookies go with the request
+          cache: 'no-store',
         });
-    }
+        if (!res.ok) {
+          const t = await res.text().catch(() => '');
+          throw new Error(`Sync failed: ${res.status} ${t}`);
+        }
+        console.log('User sync successful:', user.id);
+      } catch (err) {
+        console.error('Failed to sync user:', err);
+        // allow retry next render
+        syncedRef.current.delete(user.id);
+      }
+    })();
   }, [isLoaded, user]);
 
-  return null; // This component doesn't render anything
+  return null;
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -34,15 +34,13 @@ import {
 } from "lucide-react"
 import { SignOutButton } from "@clerk/nextjs"
 
-// ➕ NEW: dialog imports
+/* NEW: drag & drop */
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea"
+  DragDropContext,
+  Droppable,
+  Draggable,
+  type DropResult,
+} from "@hello-pangea/dnd"
 
 // ---- DB-backed types ----
 type Subtask = { id: string; title: string; completed: boolean }
@@ -99,14 +97,6 @@ export default function KanbanBoard() {
   const [members, setMembers] = useState<Member[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState<string>("")
-
-  // ➕ NEW: Task dialog state
-  const [taskDialogOpen, setTaskDialogOpen] = useState(false)
-  const [taskTargetColumnId, setTaskTargetColumnId] = useState<string | null>(null)
-  const [taskTitle, setTaskTitle] = useState("")
-  const [taskPriority, setTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM")
-  const [taskDescription, setTaskDescription] = useState("")
-  const [taskSaving, setTaskSaving] = useState(false)
 
   const MAX_MEMBERS = 5
   const remainingSlots = useMemo(() => Math.max(0, MAX_MEMBERS - members.length), [members.length])
@@ -194,9 +184,10 @@ export default function KanbanBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load columns & tasks for the selected workspace
-  const reloadColumns = async (workspaceId: string) => {
-    const res = await fetch(`/api/workspaces/${workspaceId}/columns`, {
+  // helper to refresh columns for selected workspace
+  const refreshColumns = useCallback(async () => {
+    if (!selectedWorkspaceId) return
+    const res = await fetch(`/api/workspaces/${selectedWorkspaceId}/columns`, {
       cache: "no-store",
       credentials: "include",
     })
@@ -206,12 +197,12 @@ export default function KanbanBoard() {
     }
     const data: Column[] = await res.json()
     setColumns(data)
-  }
-
-  useEffect(() => {
-    if (!selectedWorkspaceId) return
-    reloadColumns(selectedWorkspaceId)
   }, [selectedWorkspaceId])
+
+  // Load columns & tasks for the selected workspace
+  useEffect(() => {
+    refreshColumns()
+  }, [selectedWorkspaceId, refreshColumns])
 
   // Create workspace (non-personal)
   const addWorkspace = async () => {
@@ -295,48 +286,7 @@ export default function KanbanBoard() {
       alert(`Failed to create column: ${res.status} ${msg || ""}`)
       return
     }
-    reloadColumns(selectedWorkspaceId)
-  }
-
-  // ➕ NEW: open/close task dialog
-  const openTaskDialogFor = (columnId: string) => {
-    setTaskTargetColumnId(columnId)
-    setTaskTitle("")
-    setTaskPriority("MEDIUM")
-    setTaskDescription("")
-    setTaskDialogOpen(true)
-  }
-  const closeTaskDialog = () => {
-    setTaskDialogOpen(false)
-    setTaskTargetColumnId(null)
-  }
-
-  // ➕ NEW: create task (DB)
-  const createTask = async () => {
-    if (!taskTitle.trim() || !taskTargetColumnId || !selectedWorkspaceId) return
-    setTaskSaving(true)
-    try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          columnId: taskTargetColumnId,
-          title: taskTitle.trim(),
-          description: taskDescription.trim() || undefined,
-          priority: taskPriority, // "LOW" | "MEDIUM" | "HIGH"
-        }),
-      })
-      if (!res.ok) {
-        const msg = await res.text().catch(() => "")
-        alert(`Failed to create task: ${res.status} ${msg || ""}`)
-        return
-      }
-      await reloadColumns(selectedWorkspaceId)
-      closeTaskDialog()
-    } finally {
-      setTaskSaving(false)
-    }
+    await refreshColumns()
   }
 
   // Priority badge tint
@@ -347,7 +297,53 @@ export default function KanbanBoard() {
       ? "bg-accent/15 text-accent-foreground"
       : "bg-secondary text-secondary-foreground"
 
-  // ===== UI (unchanged except: task dialog + column “+” wired) =====
+  /* NEW: drag end handler (optimistic) */
+  const onDragEnd = useCallback(
+    async (result: DropResult) => {
+      const { destination, source, draggableId } = result
+      if (!destination) return
+
+      const fromColId = source.droppableId
+      const toColId = destination.droppableId
+      const fromIndex = source.index
+      const toIndex = destination.index
+
+      if (fromColId === toColId && fromIndex === toIndex) return
+
+      // optimistic UI update
+      setColumns((prev) => {
+        const copy = prev.map((c) => ({ ...c, tasks: [...(c.tasks ?? [])] }))
+        const fromCol = copy.find((c) => c.id === fromColId)
+        const toCol = copy.find((c) => c.id === toColId)
+        if (!fromCol || !toCol) return prev
+
+        const [moved] = fromCol.tasks.splice(fromIndex, 1)
+        if (!moved) return prev
+        toCol.tasks.splice(toIndex, 0, moved)
+        return copy
+      })
+
+      // persist
+      const res = await fetch("/api/tasks/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          taskId: draggableId,
+          toColumnId: toColId,
+          toIndex,
+        }),
+      })
+
+      if (!res.ok) {
+        // rollback by reloading from server
+        await refreshColumns()
+      }
+    },
+    [refreshColumns]
+  )
+
+  // ===== UI (unchanged except: DnD wrappers) =====
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* PRIMARY SIDEBAR (LEFT) */}
@@ -473,76 +469,92 @@ export default function KanbanBoard() {
             </Button>
           </div>
 
-          {/* columns (DB-backed) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {columns.map((column) => (
-              <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{column.name}</span>
-                    <Badge variant="secondary" className="text-xs">{column.tasks?.length ?? 0}</Badge>
+          {/* columns (DB-backed) with DnD */}
+          <DragDropContext onDragEnd={onDragEnd}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {columns.map((column) => (
+                <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{column.name}</span>
+                      <Badge variant="secondary" className="text-xs">{column.tasks?.length ?? 0}</Badge>
+                    </div>
+                    <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground">
+                      <Plus className="w-4 h-4" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={() => openTaskDialogFor(column.id)}
-                    aria-label="Add task"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </Button>
+
+                  <Droppable droppableId={column.id} type="TASK">
+                    {(dropProvided, dropSnapshot) => (
+                      <div
+                        ref={dropProvided.innerRef}
+                        {...dropProvided.droppableProps}
+                        className={`space-y-3 min-h-10 pb-1 ${dropSnapshot.isDraggingOver ? "bg-muted/40 rounded-md" : ""}`}
+                      >
+                        {(column.tasks ?? []).map((task, index) => (
+                          <Draggable key={task.id} draggableId={task.id} index={index}>
+                            {(dragProvided, dragSnapshot) => (
+                              <div
+                                ref={dragProvided.innerRef}
+                                {...dragProvided.draggableProps}
+                                {...dragProvided.dragHandleProps}
+                                className={dragSnapshot.isDragging ? "opacity-80" : ""}
+                              >
+                                <Card className="bg-card border-border">
+                                  <CardContent className="p-4">
+                                    {/* priority */}
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
+                                        <span className="inline-block size-1.5 rounded-full bg-current/70" />
+                                        <span className="font-medium">
+                                          {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* title + description */}
+                                    <h3 className="font-medium mb-1">{task.title}</h3>
+                                    {task.description && (
+                                      <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
+                                    )}
+
+                                    {/* subtasks (if any) */}
+                                    <div className="space-y-2">
+                                      {(task.subtasks ?? []).map((sub) => (
+                                        <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                                          <Checkbox
+                                            id={`sub-${task.id}-${sub.id}`}
+                                            checked={sub.completed}
+                                            className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                            onClick={(e) => e.preventDefault()}
+                                          />
+                                          <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
+                                            {sub.title}
+                                          </span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
+                          </Draggable>
+                        ))}
+                        {dropProvided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
                 </div>
+              ))}
 
-                <div className="space-y-3">
-                  {(column.tasks ?? []).map((task) => (
-                    <Card key={task.id} className="bg-card border-border">
-                      <CardContent className="p-4">
-                        {/* priority */}
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
-                            <span className="inline-block size-1.5 rounded-full bg-current/70" />
-                            <span className="font-medium">
-                              {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* title + description */}
-                        <h3 className="font-medium mb-1">{task.title}</h3>
-                        {task.description && (
-                          <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
-                        )}
-
-                        {/* subtasks (if any) */}
-                        <div className="space-y-2">
-                          {(task.subtasks ?? []).map((sub) => (
-                            <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
-                              <Checkbox
-                                id={`sub-${task.id}-${sub.id}`}
-                                checked={sub.completed}
-                                className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                onClick={(e) => e.preventDefault()}
-                              />
-                              <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
-                                {sub.title}
-                              </span>
-                            </label>
-                          ))}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+              {/* Empty-state helper */}
+              {columns.length === 0 && (
+                <div className="text-sm text-muted-foreground">
+                  No columns yet. Use “Add Column” to create one.
                 </div>
-              </div>
-            ))}
-
-            {/* Empty-state helper */}
-            {columns.length === 0 && (
-              <div className="text-sm text-muted-foreground">
-                No columns yet. Use “Add Column” to create one.
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          </DragDropContext>
         </section>
       </main>
 
@@ -702,63 +714,6 @@ export default function KanbanBoard() {
           )}
         </div>
       </aside>
-
-      {/* ➕ NEW: Create Task Dialog */}
-      <Dialog open={taskDialogOpen} onOpenChange={(open) => (open ? setTaskDialogOpen(true) : closeTaskDialog())}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Task</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="task-title">Title *</Label>
-              <Input
-                id="task-title"
-                value={taskTitle}
-                onChange={(e) => setTaskTitle(e.target.value)}
-                placeholder="Task title"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Priority</Label>
-                <Select value={taskPriority} onValueChange={(v: "LOW" | "MEDIUM" | "HIGH") => setTaskPriority(v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="LOW">Low</SelectItem>
-                    <SelectItem value="MEDIUM">Medium</SelectItem>
-                    <SelectItem value="HIGH">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="task-desc">Description</Label>
-              <Textarea
-                id="task-desc"
-                rows={3}
-                value={taskDescription}
-                onChange={(e) => setTaskDescription(e.target.value)}
-                placeholder="Optional description"
-              />
-            </div>
-          </div>
-
-          <DialogFooter className="mt-4">
-            <Button variant="outline" onClick={closeTaskDialog}>
-              Cancel
-            </Button>
-            <Button onClick={createTask} disabled={taskSaving || !taskTitle.trim()}>
-              {taskSaving ? "Creating..." : "Create Task"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

@@ -8,7 +8,15 @@ import { prisma } from "@/lib/prisma";
 
 /**
  * POST /api/tasks
- * Body: { columnId: string, title: string, description?, priority?: "LOW"|"MEDIUM"|"HIGH", dueDate?, assigneeId? }
+ * Body: {
+ *   columnId: string,
+ *   title: string,
+ *   description?: string,        // <-- we use this to store your "Subtitle"
+ *   priority?: "LOW"|"MEDIUM"|"HIGH",
+ *   dueDate?: string | Date,
+ *   assigneeId?: string,
+ *   subtasks?: Array<{ title: string; completed?: boolean }>
+ * }
  * Creates a task at the end of the given column (order = last + 1).
  */
 export async function POST(req: NextRequest) {
@@ -19,11 +27,22 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const columnId = String(body?.columnId || "");
     const title = String(body?.title || "").trim();
-    const description = body?.description ? String(body.description) : null;
+    const description = body?.description ? String(body.description) : null; // <-- Subtitle maps here
     const rawPriority = String(body?.priority || "MEDIUM").toUpperCase();
     const priority = rawPriority === "LOW" || rawPriority === "HIGH" ? rawPriority : "MEDIUM";
     const assigneeId = body?.assigneeId ? String(body.assigneeId) : null;
     const dueDate = body?.dueDate ? new Date(body.dueDate) : null;
+
+    // Optional subtasks array
+    const subtasksInput = Array.isArray(body?.subtasks) ? body.subtasks : [];
+    const subtaskCreates =
+      subtasksInput
+        .map((s: any, idx: number) => ({
+          title: String(s?.title || "").trim(),
+          completed: Boolean(s?.completed ?? false),
+          order: idx,
+        }))
+        .filter((s: any) => s.title.length > 0) || [];
 
     if (!columnId || !title) {
       return NextResponse.json({ error: "columnId and title are required" }, { status: 400 });
@@ -52,12 +71,15 @@ export async function POST(req: NextRequest) {
     const task = await prisma.task.create({
       data: {
         title,
-        description,
-        priority,                // Prisma enum: LOW | MEDIUM | HIGH
+        description,               // <-- stores "Subtitle"
+        priority,                  // LOW | MEDIUM | HIGH
         order: (maxOrder._max.order ?? -1) + 1,
         dueDate,
-        assigneeId,
+        assigneeId: assigneeId || undefined,
         columnId,
+        ...(subtaskCreates.length
+          ? { subtasks: { create: subtaskCreates } }
+          : {}),
       },
       include: {
         subtasks: true,

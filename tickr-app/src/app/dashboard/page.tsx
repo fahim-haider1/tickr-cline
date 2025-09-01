@@ -1,3 +1,4 @@
+// src/app/dashboard/page.tsx
 "use client"
 
 import { useEffect, useMemo, useState, useCallback } from "react"
@@ -32,6 +33,7 @@ import {
   Trash2,
   Check,
   X,
+  Minus,
 } from "lucide-react"
 import { SignOutButton } from "@clerk/nextjs"
 
@@ -41,6 +43,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 
@@ -51,11 +54,12 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd"
 
+// ----------------- (types unchanged except we use description as Subtitle) -----------------
 type Subtask = { id: string; title: string; completed: boolean }
 type Task = {
   id: string
   title: string
-  description?: string | null
+  description?: string | null // <-- used as "Subtitle"
   priority: "LOW" | "MEDIUM" | "HIGH"
   subtasks?: Subtask[]
 }
@@ -80,6 +84,11 @@ type Member = {
   role: "admin" | "member" | "viewer"
 }
 
+// For assignee dropdown (real members from API)
+type AssignableUser = { id: string; name: string | null; email: string }
+
+// ------------------------------------------------------------------------------------------
+
 export default function KanbanBoard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const toggleSidebar = () => setSidebarCollapsed((s) => !s)
@@ -100,12 +109,27 @@ export default function KanbanBoard() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState<string>("")
 
+  // ---------------- Task dialog state (UPDATED) ----------------
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [taskTargetColumnId, setTaskTargetColumnId] = useState<string | null>(null)
   const [taskTitle, setTaskTitle] = useState("")
   const [taskPriority, setTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM")
-  const [taskDescription, setTaskDescription] = useState("")
+
+  // NEW: Subtitle (stored in DB as `description`)
+  const [taskSubtitle, setTaskSubtitle] = useState("")
+
+  // NEW: Assignee (from real workspace members)
+  const [assignableMembers, setAssignableMembers] = useState<AssignableUser[]>([])
+  const [assigneeId, setAssigneeId] = useState<string>("__unassigned__") // sentinel value (non-empty)
+
+  // NEW: Due date (yyyy-mm-dd)
+  const [dueDate, setDueDate] = useState<string>("")
+
+  // NEW: Subtasks (simple list of strings, becomes Subtask rows)
+  const [subtaskInputs, setSubtaskInputs] = useState<string[]>([])
+
   const [taskSaving, setTaskSaving] = useState(false)
+  // ------------------------------------------------------------
 
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
   const [editColumnName, setEditColumnName] = useState<string>("")
@@ -314,7 +338,7 @@ export default function KanbanBoard() {
     if (!ok) return
     await fetch(`/api/workspaces/${selectedWorkspaceId}/columns?columnId=${columnId}`, {
       method: "DELETE",
-      credentials: "include", // ✅ send Clerk cookies
+      credentials: "include",
     })
     await reloadColumns(selectedWorkspaceId)
   }
@@ -323,8 +347,33 @@ export default function KanbanBoard() {
     setTaskTargetColumnId(columnId)
     setTaskTitle("")
     setTaskPriority("MEDIUM")
-    setTaskDescription("")
+    setTaskSubtitle("")          // <-- subtitle reset
+    setAssigneeId("__unassigned__") // <-- non-empty sentinel
+    setDueDate("")               // <-- no date
+    setSubtaskInputs([])         // <-- start empty
     setTaskDialogOpen(true)
+
+    // Load assignable members from API (owner + members)
+    if (selectedWorkspaceId) {
+      fetch(`/api/workspaces/${selectedWorkspaceId}/members`, {
+        cache: "no-store",
+        credentials: "include",
+      })
+        .then(async (r) => (r.ok ? r.json() : []))
+        .then((list: any[]) => {
+          const users: AssignableUser[] = Array.isArray(list)
+            ? list
+                .map((m) => ({
+                  id: m?.user?.id,
+                  name: m?.user?.name ?? null,
+                  email: m?.user?.email ?? "",
+                }))
+                .filter((u) => !!u.id && !!u.email)
+            : []
+          setAssignableMembers(users)
+        })
+        .catch(() => setAssignableMembers([]))
+    }
   }
   const closeTaskDialog = () => {
     setTaskDialogOpen(false)
@@ -335,16 +384,28 @@ export default function KanbanBoard() {
     if (!taskTitle.trim() || !taskTargetColumnId || !selectedWorkspaceId) return
     setTaskSaving(true)
     try {
+      const subtasksPayload = subtaskInputs
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .map((title) => ({ title, completed: false }))
+
+      const body: any = {
+        columnId: taskTargetColumnId,
+        title: taskTitle.trim(),
+        description: taskSubtitle.trim() || undefined, // <-- Subtitle saved as description
+        priority: taskPriority,
+        subtasks: subtasksPayload,
+      }
+      if (assigneeId && assigneeId !== "__unassigned__") {
+        body.assigneeId = assigneeId
+      }
+      if (dueDate) body.dueDate = dueDate // server turns into Date
+
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({
-          columnId: taskTargetColumnId,
-          title: taskTitle.trim(),
-          description: taskDescription.trim() || undefined,
-          priority: taskPriority,
-        }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
         const msg = await res.text().catch(() => "")
@@ -807,13 +868,18 @@ export default function KanbanBoard() {
         </div>
       </aside>
 
+      {/* ------------------- UPDATED CREATE TASK DIALOG ------------------- */}
       <Dialog open={taskDialogOpen} onOpenChange={(open) => (open ? setTaskDialogOpen(true) : closeTaskDialog())}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Create Task</DialogTitle>
+            <DialogDescription className="sr-only">
+              Fill in optional details like priority, assignee, due date and subtasks.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Title (required) */}
             <div className="space-y-2">
               <Label htmlFor="task-title">Title *</Label>
               <Input
@@ -824,6 +890,7 @@ export default function KanbanBoard() {
               />
             </div>
 
+            {/* Priority (optional) + Due date (optional) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Priority</Label>
@@ -838,17 +905,91 @@ export default function KanbanBoard() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="task-due">Due date</Label>
+                <Input
+                  id="task-due"
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                />
+              </div>
             </div>
 
+            {/* Subtitle (optional) */}
             <div className="space-y-2">
-              <Label htmlFor="task-desc">Description</Label>
+              <Label htmlFor="task-subtitle">Subtitle</Label>
               <Textarea
-                id="task-desc"
-                rows={3}
-                value={taskDescription}
-                onChange={(e) => setTaskDescription(e.target.value)}
-                placeholder="Optional description"
+                id="task-subtitle"
+                rows={2}
+                value={taskSubtitle}
+                onChange={(e) => setTaskSubtitle(e.target.value)}
+                placeholder="Short subtitle (stored in DB as description)"
               />
+            </div>
+
+            {/* Assignee (optional, shadcn Select) */}
+            <div className="space-y-2">
+              <Label>Assignee</Label>
+              <Select value={assigneeId} onValueChange={(v) => setAssigneeId(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                  {assignableMembers.map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {(u.name || u.email) + " (" + u.email + ")"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Subtasks (optional) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Subtasks</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSubtaskInputs((prev) => [...prev, ""])}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add subtask
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {subtaskInputs.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No subtasks yet.</p>
+                )}
+                {subtaskInputs.map((val, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={val}
+                      placeholder={`Subtask #${idx + 1}`}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setSubtaskInputs((prev) => prev.map((p, i) => (i === idx ? v : p)))
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        setSubtaskInputs((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      aria-label="Remove subtask"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -862,6 +1003,7 @@ export default function KanbanBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ------------------- /UPDATED CREATE TASK DIALOG ------------------- */}
     </div>
   )
 }

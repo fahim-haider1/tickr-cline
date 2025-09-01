@@ -1,3 +1,4 @@
+// src/app/api/workspaces/[workspaceId]/columns/route.ts
 import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
@@ -15,15 +16,17 @@ async function ensureOwned(workspaceId: string, userId: string) {
 // GET columns for a workspace (owned by user)
 export async function GET(
   _req: Request,
-  { params }: { params: { workspaceId: string } }
+  ctx: { params: Promise<{ workspaceId: string }> }
 ) {
+  const { workspaceId } = await ctx.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const ws = await ensureOwned(params.workspaceId, userId)
+
+  const ws = await ensureOwned(workspaceId, userId)
   if (!ws) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const columns = await prisma.column.findMany({
-    where: { workspaceId: params.workspaceId },
+    where: { workspaceId },
     orderBy: { order: "asc" },
     include: {
       tasks: {
@@ -38,11 +41,13 @@ export async function GET(
 // CREATE column
 export async function POST(
   req: Request,
-  { params }: { params: { workspaceId: string } }
+  ctx: { params: Promise<{ workspaceId: string }> }
 ) {
+  const { workspaceId } = await ctx.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const ws = await ensureOwned(params.workspaceId, userId)
+
+  const ws = await ensureOwned(workspaceId, userId)
   if (!ws) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const { name } = await req.json()
@@ -51,7 +56,7 @@ export async function POST(
   }
 
   const max = await prisma.column.aggregate({
-    where: { workspaceId: params.workspaceId },
+    where: { workspaceId },
     _max: { order: true },
   })
   const nextOrder = (max._max.order ?? -1) + 1
@@ -60,7 +65,7 @@ export async function POST(
     data: {
       name: name.trim(),
       order: nextOrder,
-      workspaceId: params.workspaceId,
+      workspaceId,
     },
   })
   return NextResponse.json(created, { status: 201 })
@@ -69,11 +74,13 @@ export async function POST(
 // RENAME column
 export async function PATCH(
   req: Request,
-  { params }: { params: { workspaceId: string } }
+  ctx: { params: Promise<{ workspaceId: string }> }
 ) {
+  const { workspaceId } = await ctx.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const ws = await ensureOwned(params.workspaceId, userId)
+
+  const ws = await ensureOwned(workspaceId, userId)
   if (!ws) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const { columnId, name } = await req.json()
@@ -82,12 +89,12 @@ export async function PATCH(
   }
 
   const col = await prisma.column.findFirst({
-    where: { id: columnId, workspaceId: params.workspaceId },
+    where: { id: columnId, workspaceId },
   })
   if (!col) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const updated = await prisma.column.update({
-    where: { id: columnId }, // update by unique ID
+    where: { id: columnId },
     data: { name: name.trim() },
   })
   return NextResponse.json(updated)
@@ -96,11 +103,13 @@ export async function PATCH(
 // DELETE column
 export async function DELETE(
   req: Request,
-  { params }: { params: { workspaceId: string } }
+  ctx: { params: Promise<{ workspaceId: string }> }
 ) {
+  const { workspaceId } = await ctx.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const ws = await ensureOwned(params.workspaceId, userId)
+
+  const ws = await ensureOwned(workspaceId, userId)
   if (!ws) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const url = new URL(req.url)
@@ -110,13 +119,14 @@ export async function DELETE(
   }
 
   const col = await prisma.column.findFirst({
-    where: { id: columnId, workspaceId: params.workspaceId },
+    where: { id: columnId, workspaceId },
   })
   if (!col) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
+  // Cascade delete subtasks + tasks
   await prisma.subtask.deleteMany({ where: { task: { columnId } } })
   await prisma.task.deleteMany({ where: { columnId } })
-  await prisma.column.delete({ where: { id: columnId } }) // delete by unique ID
+  await prisma.column.delete({ where: { id: columnId } })
 
   return NextResponse.json({ ok: true })
 }

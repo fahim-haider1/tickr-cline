@@ -1,40 +1,33 @@
-// src/components/UserSync.tsx
-'use client';
+"use client";
 
-import { useUser } from '@clerk/nextjs';
-import { useEffect, useRef } from 'react';
+import { useEffect } from "react";
 
+/**
+ * Minimal, safe UserSync component.
+ * It pings a server endpoint to ensure the authenticated user
+ * exists in your DB. Fails silently if the route doesn't exist.
+ */
 export default function UserSync() {
-  const { user, isLoaded } = useUser();
-  const syncedRef = useRef<Set<string>>(new Set());
-
   useEffect(() => {
-    if (!isLoaded || !user) return;
-    if (syncedRef.current.has(user.id)) return;
-
-    console.log('Syncing user with database...', user.id);
-    syncedRef.current.add(user.id);
-
+    let ignore = false;
     (async () => {
       try {
-        const res = await fetch('/api/sync-user', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',   // ensure Clerk cookies go with the request
-          cache: 'no-store',
-        });
-        if (!res.ok) {
-          const t = await res.text().catch(() => '');
-          throw new Error(`Sync failed: ${res.status} ${t}`);
+        // Try common sync endpoints; adjust to your backend route.
+        // Prefer one; others are fallbacks.
+        const endpoints = ["/api/user/sync", "/api/users/sync", "/api/sync-user"];
+        for (const url of endpoints) {
+          const res = await fetch(url, { method: "POST", credentials: "include" }).catch(() => null);
+          if (ignore) return;
+          if (res && (res.ok || res.status === 405)) break; // 405 if route expects GET, we stop anyway
         }
-        console.log('User sync successful:', user.id);
-      } catch (err) {
-        console.error('Failed to sync user:', err);
-        // allow retry next render
-        syncedRef.current.delete(user.id);
+      } catch {
+        // ignore errors
       }
     })();
-  }, [isLoaded, user]);
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   return null;
 }

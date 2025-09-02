@@ -55,20 +55,23 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd"
 
-// ✅ NEW: shadcn progress bar
+// shadcn progress bar
 import { Progress } from "@/components/ui/progress"
 
-// ----------------- (types unchanged except we use description as Subtitle) -----------------
+// ----------------- Types -----------------
 type Subtask = { id: string; title: string; completed: boolean }
+
 type Task = {
   id: string
   title: string
-  description?: string | null // <-- used as "Subtitle"
+  description?: string | null // subtitle (short)
+  details?: string | null     // long description (separate)
   priority: "LOW" | "MEDIUM" | "HIGH"
-  // 👇 allow dueDate to come back from the API (string ISO or Date or null)
   dueDate?: string | Date | null
   subtasks?: Subtask[]
+  assignee?: { id: string; name?: string | null; email: string } | null
 }
+
 type Column = {
   id: string
   name: string
@@ -90,7 +93,6 @@ type Member = {
   role: "admin" | "member" | "viewer"
 }
 
-// For assignee dropdown (real members from API)
 type AssignableUser = { id: string; name: string | null; email: string }
 
 // ------------------------------------------------------------------------------------------
@@ -101,7 +103,6 @@ export default function KanbanBoard() {
 
   const [workspaces, setWorkspaces] = useState<WorkspaceUI[]>([])
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null)
-
   const [columns, setColumns] = useState<Column[]>([])
 
   const [rightOpen, setRightOpen] = useState(false)
@@ -115,32 +116,62 @@ export default function KanbanBoard() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState<string>("")
 
-  // ---------------- Task dialog state (UPDATED) ----------------
+  // ---------------- Task dialog state (create) ----------------
   const [taskDialogOpen, setTaskDialogOpen] = useState(false)
   const [taskTargetColumnId, setTaskTargetColumnId] = useState<string | null>(null)
   const [taskTitle, setTaskTitle] = useState("")
   const [taskPriority, setTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM")
-
-  // NEW: Subtitle (stored in DB as `description`)
-  const [taskSubtitle, setTaskSubtitle] = useState("")
-
-  // NEW: Assignee (from real workspace members)
-  const [assignableMembers, setAssignableMembers] = useState<AssignableUser[]>([])
-  const [assigneeId, setAssigneeId] = useState<string>("__unassigned__") // sentinel value (non-empty)
-
-  // NEW: Due date (yyyy-mm-dd)
+  const [taskSubtitle, setTaskSubtitle] = useState("") // stored as description
+  const [assigneeId, setAssigneeId] = useState<string>("__unassigned__")
   const [dueDate, setDueDate] = useState<string>("")
-
-  // NEW: Subtasks (simple list of strings, becomes Subtask rows)
   const [subtaskInputs, setSubtaskInputs] = useState<string[]>([])
-
   const [taskSaving, setTaskSaving] = useState(false)
+  const [assignableMembers, setAssignableMembers] = useState<AssignableUser[]>([])
   // ------------------------------------------------------------
 
-  // ✅ column rename state
+  // column rename state
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
   const [editColumnName, setEditColumnName] = useState<string>("")
 
+  // ---------- Task details/edit dialog (click card) ----------
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const activeTask = useMemo(() => {
+    if (!activeTaskId) return null
+    for (const c of columns) {
+      const t = (c.tasks ?? []).find((x) => x.id === activeTaskId)
+      if (t) return t
+    }
+    return null
+  }, [activeTaskId, columns])
+
+  // local edit fields in dialog
+  const [editTitle, setEditTitle] = useState("")
+  const [editSubtitle, setEditSubtitle] = useState("")
+  const [editDue, setEditDue] = useState("")
+  const [editAssignee, setEditAssignee] = useState<string>("__unassigned__")
+  const [editDetails, setEditDetails] = useState("")
+
+  const openDetails = (task: Task) => {
+    setActiveTaskId(task.id)
+    setDetailsOpen(true)
+  }
+  const closeDetails = () => {
+    setDetailsOpen(false)
+    setActiveTaskId(null)
+  }
+
+  // preload fields when dialog opens or active task changes
+  useEffect(() => {
+    if (!activeTask) return
+    setEditTitle(activeTask.title ?? "")
+    setEditSubtitle(activeTask.description ?? "")
+    setEditDue(formatYYYYMMDD(activeTask.dueDate) || "")
+    setEditAssignee(activeTask.assignee?.id ?? "__unassigned__")
+    setEditDetails(activeTask.details ?? "")
+  }, [activeTask])
+
+  // ---------------- Helpers ----------------
   const MAX_MEMBERS = 5
   const remainingSlots = useMemo(() => Math.max(0, MAX_MEMBERS - members.length), [members.length])
   const atCapacity = remainingSlots === 0
@@ -154,38 +185,69 @@ export default function KanbanBoard() {
       .join(" ")
   }
 
-  const sendInvite = () => {
-    const email = inviteEmail.trim().toLowerCase()
-    if (!email || atCapacity) return
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
-    if (members.some((m) => m.email === email)) return
-    setMembers((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), email, name: nameFromEmail(email), role: inviteRole },
-    ])
-    setInviteEmail("")
-    setInviteRole("member")
+  const formatDue = (d?: string | Date | null) => {
+    if (!d) return null
+    const date = new Date(d as any)
+    return isNaN(date.getTime()) ? null : date.toLocaleDateString()
   }
 
-  const startEdit = (m: Member) => {
-    setEditingId(m.id)
-    setEditName(m.name)
-  }
-  const cancelEdit = () => {
-    setEditingId(null)
-    setEditName("")
-  }
-  const saveEdit = (id: string) => {
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, name: editName.trim() || m.name } : m)))
-    cancelEdit()
-  }
-  const changeRole = (id: string, role: Member["role"]) => {
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, role } : m)))
-  }
-  const deleteMember = (id: string) => {
-    setMembers((prev) => prev.filter((m) => m.id !== id))
+  const formatYYYYMMDD = (d?: string | Date | null) => {
+    if (!d) return ""
+    const date = new Date(d as any)
+    if (isNaN(date.getTime())) return ""
+    const m = `${date.getMonth() + 1}`.padStart(2, "0")
+    const day = `${date.getDate()}`.padStart(2, "0")
+    return `${date.getFullYear()}-${m}-${day}`
   }
 
+  const getPriorityTint = (p: Task["priority"]) =>
+    p === "HIGH"
+      ? "bg-destructive/15 text-destructive"
+      : p === "MEDIUM"
+      ? "bg-accent/15 text-accent-foreground"
+      : "bg-secondary text-secondary-foreground"
+
+  const isTaskComplete = (task: Task, columnName: string) => {
+    const inDoneColumn = columnName.toLowerCase() === "done"
+    const hasSubs = (task.subtasks ?? []).length > 0
+    const allSubsDone = hasSubs && (task.subtasks ?? []).every((s) => s.completed)
+    return inDoneColumn || allSubsDone
+  }
+
+  // patch helper
+  const patchTask = async (taskId: string, data: any) => {
+    await fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(data),
+    })
+  }
+
+  // ---------------- Members load (assignable) ----------------
+  useEffect(() => {
+    if (!selectedWorkspaceId) return
+    fetch(`/api/workspaces/${selectedWorkspaceId}/members`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then(async (r) => (r.ok ? r.json() : []))
+      .then((list: any[]) => {
+        const users: AssignableUser[] = Array.isArray(list)
+          ? list
+              .map((m) => ({
+                id: m?.user?.id,
+                name: m?.user?.name ?? null,
+                email: m?.user?.email ?? "",
+              }))
+              .filter((u) => !!u.id && !!u.email)
+          : []
+        setAssignableMembers(users)
+      })
+      .catch(() => setAssignableMembers([]))
+  }, [selectedWorkspaceId])
+
+  // ---------------- Workspaces + Columns load ----------------
   useEffect(() => {
     const load = async () => {
       const res = await fetch("/api/workspaces", { cache: "no-store", credentials: "include" })
@@ -244,6 +306,7 @@ export default function KanbanBoard() {
     reloadColumns(selectedWorkspaceId)
   }, [selectedWorkspaceId])
 
+  // ---------------- Workspace actions ----------------
   const addWorkspace = async () => {
     const name = window.prompt("Workspace name?")
     if (!name) return
@@ -307,6 +370,7 @@ export default function KanbanBoard() {
 
   const isPersonal = workspaces.find((w) => w.id === selectedWorkspaceId)?.undeletable
 
+  // ---------------- Column actions ----------------
   const addColumn = async () => {
     if (!selectedWorkspaceId) return
     const name = window.prompt("Column name?")
@@ -350,37 +414,16 @@ export default function KanbanBoard() {
     await reloadColumns(selectedWorkspaceId)
   }
 
+  // ---------------- Create Task ----------------
   const openTaskDialogFor = (columnId: string) => {
     setTaskTargetColumnId(columnId)
     setTaskTitle("")
     setTaskPriority("MEDIUM")
-    setTaskSubtitle("")          // <-- subtitle reset
-    setAssigneeId("__unassigned__") // <-- non-empty sentinel
-    setDueDate("")               // <-- no date
-    setSubtaskInputs([])         // <-- start empty
+    setTaskSubtitle("")
+    setAssigneeId("__unassigned__")
+    setDueDate("")
+    setSubtaskInputs([])
     setTaskDialogOpen(true)
-
-    // Load assignable members from API (owner + members)
-    if (selectedWorkspaceId) {
-      fetch(`/api/workspaces/${selectedWorkspaceId}/members`, {
-        cache: "no-store",
-        credentials: "include",
-      })
-        .then(async (r) => (r.ok ? r.json() : []))
-        .then((list: any[]) => {
-          const users: AssignableUser[] = Array.isArray(list)
-            ? list
-                .map((m) => ({
-                  id: m?.user?.id,
-                  name: m?.user?.name ?? null,
-                  email: m?.user?.email ?? "",
-                }))
-                .filter((u) => !!u.id && !!u.email)
-            : []
-          setAssignableMembers(users)
-        })
-        .catch(() => setAssignableMembers([]))
-    }
   }
   const closeTaskDialog = () => {
     setTaskDialogOpen(false)
@@ -399,14 +442,14 @@ export default function KanbanBoard() {
       const body: any = {
         columnId: taskTargetColumnId,
         title: taskTitle.trim(),
-        description: taskSubtitle.trim() || undefined, // <-- Subtitle saved as description
+        description: taskSubtitle.trim() || undefined,
         priority: taskPriority,
         subtasks: subtasksPayload,
       }
       if (assigneeId && assigneeId !== "__unassigned__") {
         body.assigneeId = assigneeId
       }
-      if (dueDate) body.dueDate = dueDate // server turns into Date
+      if (dueDate) body.dueDate = dueDate
 
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -426,13 +469,7 @@ export default function KanbanBoard() {
     }
   }
 
-  const getPriorityTint = (p: Task["priority"]) =>
-    p === "HIGH"
-      ? "bg-destructive/15 text-destructive"
-      : p === "MEDIUM"
-      ? "bg-accent/15 text-accent-foreground"
-      : "bg-secondary text-secondary-foreground"
-
+  // ---------------- DnD + Subtasks ----------------
   const onDragEnd = useCallback(
     async (result: DropResult) => {
       const { destination, source, draggableId } = result
@@ -455,7 +492,7 @@ export default function KanbanBoard() {
         if (!moved) return prev
         toCol.tasks.splice(toIndex, 0, moved)
 
-        // ✅ Optimistic: if moved to "Done", mark all subtasks complete locally
+        // optimistic: moved to "Done" -> mark all subtasks complete locally
         if (toCol.name.toLowerCase() === "done" && Array.isArray(moved.subtasks)) {
           moved.subtasks = moved.subtasks.map((s) => ({ ...s, completed: true }))
         }
@@ -477,7 +514,6 @@ export default function KanbanBoard() {
     [selectedWorkspaceId]
   )
 
-  // ---------- Subtask toggle (persist to DB) ----------
   const toggleSubtask = async (taskId: string, subtaskId: string, completed: boolean) => {
     // optimistic UI
     setColumns((prev) =>
@@ -507,52 +543,32 @@ export default function KanbanBoard() {
       if (selectedWorkspaceId) await reloadColumns(selectedWorkspaceId)
     }
   }
-  // ----------------------------------------------------
 
-  // ---------- NEW: Task view dialog state + delete ----------
-  const [viewOpen, setViewOpen] = useState(false)
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
-  const activeTask = useMemo(() => {
-    if (!activeTaskId) return null
-    for (const c of columns) {
-      const t = (c.tasks ?? []).find((x) => x.id === activeTaskId)
-      if (t) return t
-    }
-    return null
-  }, [activeTaskId, columns])
-
-  const openTaskView = (taskId: string) => {
-    setActiveTaskId(taskId)
-    setViewOpen(true)
+  // ------- Delete a task (hover button & optional from dialog close) -------
+  const deleteTask = async (taskId: string) => {
+    const ok = window.confirm("Delete this task?")
+    if (!ok) return
+    await fetch(`/api/tasks/${taskId}`, { method: "DELETE", credentials: "include" })
+    if (selectedWorkspaceId) await reloadColumns(selectedWorkspaceId)
+    if (activeTaskId === taskId) closeDetails()
   }
 
-  const deleteTask = async (taskId: string, columnId?: string) => {
-    // optimistic removal from UI
-    setColumns((prev) =>
-      prev.map((c) =>
-        c.id === columnId
-          ? { ...c, tasks: (c.tasks ?? []).filter((t) => t.id !== taskId) }
-          : c
-      )
+  // ------- Sidebar edit handlers to avoid runtime errors -------
+  const saveEdit = (id: string) => {
+    setMembers(prev =>
+      prev.map(pm => pm.id === id ? { ...pm, name: editName.trim() || pm.name } : pm)
     )
-    if (activeTaskId === taskId) {
-      setViewOpen(false)
-      setActiveTaskId(null)
-    }
-    try {
-      await fetch(`/api/tasks/${taskId}`, {
-        method: "DELETE",
-        credentials: "include",
-      })
-    } finally {
-      if (selectedWorkspaceId) await reloadColumns(selectedWorkspaceId)
-    }
+    setEditingId(null)
+    setEditName("")
   }
-  // ----------------------------------------------------------
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditName("")
+  }
 
-  // ---------------- Helpers for filtering (UI-only; DB remains the source of truth) ----------------
+  // ---------------- Filters ----------------
   const [filterOpen, setFilterOpen] = useState(false)
-  const [filterColumnId, setFilterColumnId] = useState<string>("__all__") // __all__ or a column id
+  const [filterColumnId, setFilterColumnId] = useState<string>("__all__")
   const [filterPriority, setFilterPriority] = useState<"ANY" | "LOW" | "MEDIUM" | "HIGH">("ANY")
   const [filterDue, setFilterDue] = useState<"ANY" | "OVERDUE" | "TODAY" | "WEEK" | "NONE">("ANY")
   const [filterCompletion, setFilterCompletion] = useState<"ANY" | "COMPLETE" | "INCOMPLETE">("ANY")
@@ -568,18 +584,11 @@ export default function KanbanBoard() {
     return d >= today && d <= in7
   }
 
-  const isTaskComplete = (task: Task, columnName: string) => {
-    const inDoneColumn = columnName.toLowerCase() === "done"
-    const hasSubs = (task.subtasks ?? []).length > 0
-    const allSubsDone = hasSubs && (task.subtasks ?? []).every((s) => s.completed)
-    return inDoneColumn || allSubsDone
-  }
-
   const taskPassesFilters = (task: Task, columnName: string) => {
     // Priority
     if (filterPriority !== "ANY" && task.priority !== filterPriority) return false
 
-    // Due date (DB may hold ISO strings; treat missing gracefully)
+    // Due date
     const rawDue = task.dueDate as any
     const due = rawDue ? new Date(rawDue) : null
     if (filterDue === "OVERDUE") {
@@ -603,14 +612,14 @@ export default function KanbanBoard() {
 
     return true
   }
-  // --------------------------------------------------------------------------------------
 
+  // ---------------- Render ----------------
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* 🔽 ensure new users are synced to DB */}
+      {/* ensure new users are synced to DB */}
       <UserSync />
 
-      {/* PRIMARY SIDEBAR (LEFT) */}
+      {/* LEFT SIDEBAR */}
       <aside
         className={`fixed inset-y-0 left-0 bg-sidebar text-sidebar-foreground border-r border-sidebar-border
         transition-[width] duration-300 ease-in-out ${sidebarCollapsed ? "w-16" : "w-64"}`}
@@ -676,7 +685,7 @@ export default function KanbanBoard() {
         </div>
       </aside>
 
-      {/* MAIN (shifts for both sidebars) */}
+      {/* MAIN */}
       <main
         className={`transition-[margin] duration-300 ease-in-out ${
           sidebarCollapsed ? "ml-16" : "ml-64"
@@ -687,7 +696,7 @@ export default function KanbanBoard() {
             <img src="/Group 5 (2).svg" alt="Tickr" className="h-6 w-auto" />
           </div>
 
-        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <Button variant="outline" className="hidden sm:inline-flex">
               Dashboard
             </Button>
@@ -726,7 +735,7 @@ export default function KanbanBoard() {
               <p className="text-muted-foreground">Here's what's happening with your projects today</p>
             </div>
             <div className="flex items-center gap-2">
-              {/* NEW: Filter button (left of Add Column) */}
+              {/* Filter button */}
               <Button variant="outline" onClick={() => setFilterOpen(true)}>
                 <FilterIcon className="w-4 h-4 mr-2" />
                 Filter
@@ -810,6 +819,8 @@ export default function KanbanBoard() {
                             const totalSubs = (task.subtasks ?? []).length
                             const doneSubs = (task.subtasks ?? []).filter(s => s.completed).length
                             const pct = totalSubs ? Math.round((doneSubs / totalSubs) * 100) : 0
+                            const dueText = formatDue(task.dueDate)
+                            const assigneeName = task.assignee?.name?.trim() || task.assignee?.email || ""
 
                             return (
                               <Draggable key={task.id} draggableId={task.id} index={index}>
@@ -820,73 +831,77 @@ export default function KanbanBoard() {
                                     {...dragProvided.dragHandleProps}
                                     className={dragSnapshot.isDragging ? "opacity-80" : ""}
                                   >
-                                    {/* group + relative for hover delete; clicking opens view */}
-                                    <Card
-                                      className="bg-card border-border group relative cursor-pointer"
-                                      onClick={() => openTaskView(task.id)}
-                                    >
-                                      {/* Hover delete button (top-right) */}
+                                    {/* group wrapper for hover-only delete */}
+                                    <div className="relative group">
+                                      {/* Hover-only delete button (top-right) */}
                                       <Button
-                                        variant="ghost"
+                                        variant="destructive"
                                         size="icon"
-                                        className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600"
-                                        onClick={(e) => {
-                                          e.stopPropagation()
-                                          deleteTask(task.id, column.id)
-                                        }}
+                                        className="absolute right-2 top-2 h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
+                                        onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }}
                                         aria-label="Delete task"
                                       >
                                         <Trash2 className="w-4 h-4" />
                                       </Button>
 
-                                      <CardContent className="p-4">
-                                        <div className="flex items-center gap-2 mb-3">
-                                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
-                                            <span className="inline-block size-1.5 rounded-full bg-current/70" />
-                                            <span className="font-medium">
-                                              {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
+                                      <Card
+                                        className="bg-card border-border cursor-pointer"
+                                        onClick={() => openDetails(task)}
+                                      >
+                                        <CardContent className="p-4">
+                                          <div className="flex items-center gap-2 mb-3">
+                                            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
+                                              <span className="inline-block size-1.5 rounded-full bg-current/70" />
+                                              <span className="font-medium">
+                                                {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
+                                              </span>
+                                            </div>
+                                          </div>
+
+                                          <h3 className="font-medium mb-1">{task.title}</h3>
+                                          {task.description && (
+                                            <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
+                                          )}
+
+                                          {/* Progress bar (always visible) */}
+                                          <div className="mb-3">
+                                            <Progress value={pct} className="h-2 w-full border border-border rounded-full" />
+                                            <span className="text-[10px] text-muted-foreground mt-1 block">
+                                              {totalSubs > 0 ? `${doneSubs}/${totalSubs} subtasks` : "No subtasks"}
                                             </span>
                                           </div>
-                                        </div>
 
-                                        <h3 className="font-medium mb-1">{task.title}</h3>
-                                        {task.description && (
-                                          <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
-                                        )}
-
-                                        {/* Progress bar based on subtasks (thin line, no numbers) */}
-                                        {totalSubs > 0 && (
-                                          <div className="mb-3">
-                                            <Progress
-                                              value={pct}
-                                              className="h-1.5 rounded-full overflow-hidden bg-white/30 [&>div]:bg-fuchsia-500"
-                                            />
+                                          {/* Due date + Assignee inline on the card */}
+                                          <div className="mt-1 mb-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+                                            {dueText && <span>Due {dueText}</span>}
+                                            {assigneeName && <span>Assigned to {assigneeName}</span>}
                                           </div>
-                                        )}
 
-                                        <div className="space-y-2">
-                                          {(task.subtasks ?? []).map((sub) => (
-                                            <label
-                                              key={sub.id}
-                                              className="flex items-center gap-2 text-xs cursor-pointer"
-                                              onClick={(e) => e.stopPropagation()} // don't open dialog when clicking a subtask
-                                            >
-                                              <Checkbox
-                                                id={`sub-${task.id}-${sub.id}`}
-                                                checked={sub.completed}
-                                                className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                                onCheckedChange={(val) =>
-                                                  toggleSubtask(task.id, sub.id, Boolean(val))
-                                                }
-                                              />
-                                              <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
-                                                {sub.title}
-                                              </span>
-                                            </label>
-                                          ))}
-                                        </div>
-                                      </CardContent>
-                                    </Card>
+                                          <div className="space-y-2">
+                                            {(task.subtasks ?? []).map((sub) => (
+                                              <label
+                                                key={sub.id}
+                                                className="flex items-center gap-2 text-xs cursor-pointer"
+                                                onClick={(e) => e.stopPropagation()}
+                                                onMouseDown={(e) => e.stopPropagation()}
+                                              >
+                                                <Checkbox
+                                                  id={`sub-${task.id}-${sub.id}`}
+                                                  checked={sub.completed}
+                                                  className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                                  onCheckedChange={(val) =>
+                                                    toggleSubtask(task.id, sub.id, Boolean(val))
+                                                  }
+                                                />
+                                                <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
+                                                  {sub.title}
+                                                </span>
+                                              </label>
+                                            ))}
+                                          </div>
+                                        </CardContent>
+                                      </Card>
+                                    </div>
                                   </div>
                                 )}
                               </Draggable>
@@ -910,6 +925,7 @@ export default function KanbanBoard() {
         </section>
       </main>
 
+      {/* RIGHT SIDEBAR */}
       <aside
         className={[
           "fixed inset-y-0 right-0 bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-in-out overflow-hidden",
@@ -970,7 +986,7 @@ export default function KanbanBoard() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              onClick={() => startEdit(m)}
+                              onClick={() => setEditingId(m.id)}
                               aria-label="Edit name"
                             >
                               <PencilLine className="h-4 w-4" />
@@ -983,7 +999,9 @@ export default function KanbanBoard() {
                         <div className="mt-2 max-w-[180px]">
                           <Select
                             value={m.role}
-                            onValueChange={(v: "admin" | "member" | "viewer") => changeRole(m.id, v)}
+                            onValueChange={(v: "admin" | "member" | "viewer") =>
+                              setMembers(prev => prev.map(pm => pm.id === m.id ? { ...pm, role: v } : pm))
+                            }
                           >
                             <SelectTrigger className="h-8">
                               <SelectValue />
@@ -1001,7 +1019,7 @@ export default function KanbanBoard() {
                         variant="destructive"
                         size="icon"
                         className="h-8 w-8"
-                        onClick={() => deleteMember(m.id)}
+                        onClick={() => setMembers(prev => prev.filter(pm => pm.id !== m.id))}
                         aria-label="Delete"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1052,7 +1070,18 @@ export default function KanbanBoard() {
                   </div>
                   <Button
                     className="w-full bg-primary text-primary-foreground h-9"
-                    onClick={sendInvite}
+                    onClick={() => {
+                      const email = inviteEmail.trim().toLowerCase()
+                      if (!email || atCapacity) return
+                      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return
+                      if (members.some((m) => m.email === email)) return
+                      setMembers((prev) => [
+                        ...prev,
+                        { id: crypto.randomUUID(), email, name: nameFromEmail(email), role: inviteRole },
+                      ])
+                      setInviteEmail("")
+                      setInviteRole("member")
+                    }}
                     disabled={atCapacity}
                   >
                     Send Invite
@@ -1066,7 +1095,7 @@ export default function KanbanBoard() {
         </div>
       </aside>
 
-      {/* ------------------- UPDATED CREATE TASK DIALOG ------------------- */}
+      {/* ------------------- CREATE TASK DIALOG ------------------- */}
       <Dialog open={taskDialogOpen} onOpenChange={(open) => (open ? setTaskDialogOpen(true) : closeTaskDialog())}>
         <DialogContent>
           <DialogHeader>
@@ -1088,7 +1117,7 @@ export default function KanbanBoard() {
               />
             </div>
 
-            {/* Priority (optional) + Due date (optional) */}
+            {/* Priority + Due date */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Priority</Label>
@@ -1115,7 +1144,7 @@ export default function KanbanBoard() {
               </div>
             </div>
 
-            {/* Subtitle (optional) */}
+            {/* Subtitle (description) */}
             <div className="space-y-2">
               <Label htmlFor="task-subtitle">Subtitle</Label>
               <Textarea
@@ -1127,7 +1156,7 @@ export default function KanbanBoard() {
               />
             </div>
 
-            {/* Assignee (optional, shadcn Select) */}
+            {/* Assignee */}
             <div className="space-y-2">
               <Label>Assignee</Label>
               <Select value={assigneeId} onValueChange={(v) => setAssigneeId(v)}>
@@ -1145,7 +1174,7 @@ export default function KanbanBoard() {
               </Select>
             </div>
 
-            {/* Subtasks (optional) */}
+            {/* Subtasks */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Subtasks</Label>
@@ -1201,7 +1230,172 @@ export default function KanbanBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* -------- /UPDATED CREATE TASK DIALOG ------------------- */}
+      {/* ------------------- /CREATE TASK DIALOG ------------------- */}
+
+      {/* ------------------- TASK DETAILS/EDIT DIALOG (click card) ------------------- */}
+      <Dialog open={detailsOpen} onOpenChange={(o) => (o ? setDetailsOpen(true) : closeDetails())}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Edit Task</DialogTitle>
+            <DialogDescription className="sr-only">
+              View and edit details for this task.
+            </DialogDescription>
+          </DialogHeader>
+
+          {activeTask && (
+            <div className="space-y-4">
+              {/* Title */}
+              <div className="space-y-2">
+                <Label>Title</Label>
+                <Input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                />
+              </div>
+
+              {/* Subtitle + Due date */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Subtitle</Label>
+                  <Textarea
+                    rows={2}
+                    value={editSubtitle}
+                    onChange={(e) => setEditSubtitle(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Due date</Label>
+                  <Input
+                    type="date"
+                    value={editDue}
+                    onChange={(e) => setEditDue(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Assignee */}
+              <div className="space-y-2">
+                <Label>Assignee</Label>
+                <Select
+                  value={editAssignee}
+                  onValueChange={(v) => setEditAssignee(v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                    {assignableMembers.map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {(u.name || u.email) + " (" + u.email + ")"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Progress (read-only) */}
+              {(activeTask.subtasks ?? []).length > 0 && (() => {
+                const total = (activeTask.subtasks ?? []).length
+                const done = (activeTask.subtasks ?? []).filter(s => s.completed).length
+                const pct = total ? Math.round((done / total) * 100) : 0
+                return (
+                  <div className="space-y-1">
+                    <Label className="text-xs">Progress</Label>
+                    <Progress value={pct} className="h-2 border border-border rounded-full" />
+                  </div>
+                )
+              })()}
+
+              {/* Subtasks (don’t close/trigger card) */}
+              <div className="space-y-1">
+                <Label className="text-xs">Subtasks</Label>
+                <div className="space-y-2">
+                  {(activeTask.subtasks ?? []).map((sub) => (
+                    <label
+                      key={sub.id}
+                      className="flex items-center gap-2 text-sm cursor-pointer"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={sub.completed}
+                        onCheckedChange={(val) => toggleSubtask(activeTask.id, sub.id, Boolean(val))}
+                        className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                      />
+                      <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
+                        {sub.title}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Separate long Description (details) */}
+              <div className="space-y-2">
+                <Label>Description</Label>
+                <Textarea
+                  rows={4}
+                  value={editDetails}
+                  onChange={(e) => setEditDetails(e.target.value)}
+                  placeholder="Add a detailed description…"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={closeDetails}>Close</Button>
+            <Button
+              onClick={async () => {
+                if (!activeTask) return
+
+                // Create payload with only changed fields
+                const payload: any = {}
+                if (editTitle !== activeTask.title) payload.title = editTitle.trim()
+                if ((editSubtitle || "") !== (activeTask.description || "")) payload.description = editSubtitle
+                if ((editDue || "") !== (formatYYYYMMDD(activeTask.dueDate) || "")) payload.dueDate = editDue || null
+                if ((editAssignee === "__unassigned__" ? null : editAssignee) !== (activeTask.assignee?.id ?? null)) {
+                  payload.assigneeId = editAssignee === "__unassigned__" ? null : editAssignee
+                }
+                if ((editDetails || "") !== (activeTask.details || "")) payload.details = editDetails
+
+                if (Object.keys(payload).length) {
+                  await patchTask(activeTask.id, payload)
+                  // optimistic local update
+                  setColumns(prev => prev.map(c => ({
+                    ...c,
+                    tasks: (c.tasks ?? []).map(t =>
+                      t.id !== activeTask.id
+                        ? t
+                        : {
+                            ...t,
+                            ...(payload.title !== undefined ? { title: payload.title } : {}),
+                            ...(payload.description !== undefined ? { description: payload.description } : {}),
+                            ...(payload.dueDate !== undefined ? { dueDate: payload.dueDate ? new Date(payload.dueDate) : null } : {}),
+                            ...(payload.details !== undefined ? { details: payload.details } : {}),
+                            ...(payload.assigneeId !== undefined
+                              ? {
+                                  assignee:
+                                    payload.assigneeId
+                                      ? assignableMembers.find(m => m.id === payload.assigneeId) || null
+                                      : null
+                                }
+                              : {}),
+                          }
+                    )
+                  })))
+                }
+
+                closeDetails()
+              }}
+              disabled={!activeTask}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ------------------- /TASK DETAILS/EDIT DIALOG ------------------- */}
 
       {/* ------------------- FILTER DIALOG ------------------- */}
       <Dialog open={filterOpen} onOpenChange={setFilterOpen}>
@@ -1214,7 +1408,7 @@ export default function KanbanBoard() {
           </DialogHeader>
 
           <div className="space-y-4">
-            {/* Which column to filter */}
+            {/* Column */}
             <div className="space-y-2">
               <Label>Column</Label>
               <Select value={filterColumnId} onValueChange={setFilterColumnId}>
@@ -1305,74 +1499,6 @@ export default function KanbanBoard() {
         </DialogContent>
       </Dialog>
       {/* ------------------- /FILTER DIALOG ------------------- */}
-
-      {/* ------------------- NEW: VIEW TASK DIALOG ------------------- */}
-      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{activeTask?.title ?? "Task"}</DialogTitle>
-            <DialogDescription className="sr-only">Task details</DialogDescription>
-          </DialogHeader>
-
-          {activeTask && (
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(activeTask.priority)}`}>
-                  <span className="inline-block size-1.5 rounded-full bg-current/70" />
-                  <span className="font-medium">
-                    {activeTask.priority === "HIGH" ? "High" : activeTask.priority === "MEDIUM" ? "Medium" : "Low"}
-                  </span>
-                </div>
-                {activeTask.dueDate && (
-                  <span className="text-xs text-muted-foreground">
-                    Due {new Date(activeTask.dueDate as any).toLocaleDateString()}
-                  </span>
-                )}
-              </div>
-
-              {activeTask.description && (
-                <p className="text-sm text-muted-foreground">{activeTask.description}</p>
-              )}
-
-              {/* progress (if subtasks) */}
-              {(activeTask.subtasks ?? []).length > 0 && (() => {
-                const total = (activeTask.subtasks ?? []).length
-                const done = (activeTask.subtasks ?? []).filter(s => s.completed).length
-                const pct = total ? Math.round((done / total) * 100) : 0
-                return (
-                  <div>
-                    <Progress value={pct} className="h-1.5 rounded-full overflow-hidden bg-white/30 [&>div]:bg-fuchsia-500" />
-                  </div>
-                )
-              })()}
-
-              <div className="space-y-2">
-                {(activeTask.subtasks ?? []).map((sub) => (
-                  <label
-                    key={sub.id}
-                    className="flex items-center gap-2 text-sm cursor-pointer"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Checkbox
-                      checked={sub.completed}
-                      onCheckedChange={(val) => toggleSubtask(activeTask.id, sub.id, Boolean(val))}
-                      className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                    />
-                    <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
-                      {sub.title}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <DialogFooter className="mt-2">
-            <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {/* ------------------- /NEW: VIEW TASK DIALOG ------------------- */}
     </div>
   )
 }

@@ -75,7 +75,8 @@ model Column {
 model Task {
   id          String       @id @default(cuid())
   title       String
-  description String?
+  description String?      // short subtitle
+  details     String?      // long description (NEW)
   priority    TaskPriority @default(MEDIUM)
   order       Int
   dueDate     DateTime?

@@ -8,6 +8,8 @@
 
 /* Design tokens (from your criteria) */
 :root {
+  --success: oklch(0.7 0.2 150);
+  --success-foreground: oklch(1 0 0);
   --background: oklch(0.9816 0.0017 247.8390);
   --foreground: oklch(0.1649 0.0352 281.8285);
   --card: oklch(1.0000 0 0);
@@ -69,6 +71,8 @@
   --primary: oklch(0.6726 0.2904 341.4084);
   --primary-foreground: oklch(1.0000 0 0);
   --secondary: oklch(0.2542 0.0611 281.1423);
+  --success: oklch(0.7 0.2 150); /* green shade */
+  --success-foreground: oklch(1 0 0);
   --secondary-foreground: oklch(0.9513 0.0074 260.7315);
   --muted: oklch(0.2542 0.0611 281.1423);
   --muted-foreground: oklch(0.6245 0.0500 278.1046);

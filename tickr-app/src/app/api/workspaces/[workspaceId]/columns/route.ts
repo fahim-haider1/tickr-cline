@@ -6,14 +6,14 @@ import { prisma } from "@/lib/prisma"
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
-// Helper: ensure the workspace belongs to the current user
+// Helper: ensure the workspace belongs to the current user (owner-only)
 async function ensureOwned(workspaceId: string, userId: string) {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } })
   if (!ws || ws.ownerId !== userId) return null
   return ws
 }
 
-// GET columns for a workspace (owned by user)
+// GET columns for a workspace (owner-only in your original code)
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ workspaceId: string }> }
@@ -30,15 +30,18 @@ export async function GET(
     orderBy: { order: "asc" },
     include: {
       tasks: {
-        orderBy: { createdAt: "asc" },
-        include: { subtasks: true },
+        orderBy: { order: "asc" }, // use task.order so drag/drop order is respected
+        include: {
+          subtasks: { orderBy: { order: "asc" } },
+          assignee: { select: { id: true, name: true, email: true, image: true } },
+        },
       },
     },
   })
   return NextResponse.json(columns)
 }
 
-// CREATE column
+// CREATE column (owner-only)
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ workspaceId: string }> }
@@ -71,7 +74,7 @@ export async function POST(
   return NextResponse.json(created, { status: 201 })
 }
 
-// RENAME column
+// RENAME column (owner-only)
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ workspaceId: string }> }
@@ -100,7 +103,7 @@ export async function PATCH(
   return NextResponse.json(updated)
 }
 
-// DELETE column
+// DELETE column (owner-only)
 export async function DELETE(
   req: Request,
   ctx: { params: Promise<{ workspaceId: string }> }

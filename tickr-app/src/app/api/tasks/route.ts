@@ -11,13 +11,13 @@ import { prisma } from "@/lib/prisma";
  * Body: {
  *   columnId: string,
  *   title: string,
- *   description?: string,        // <-- we use this to store your "Subtitle"
+ *   description?: string,  // short subtitle
+ *   details?: string,      // long description
  *   priority?: "LOW"|"MEDIUM"|"HIGH",
  *   dueDate?: string | Date,
  *   assigneeId?: string,
  *   subtasks?: Array<{ title: string; completed?: boolean }>
  * }
- * Creates a task at the end of the given column (order = last + 1).
  */
 export async function POST(req: NextRequest) {
   try {
@@ -25,15 +25,15 @@ export async function POST(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body = await req.json();
+
     const columnId = String(body?.columnId || "");
     const title = String(body?.title || "").trim();
-    const description = body?.description ? String(body.description) : null; // <-- Subtitle maps here
+    const description = body?.description ? String(body.description) : null; // subtitle
     const rawPriority = String(body?.priority || "MEDIUM").toUpperCase();
     const priority = rawPriority === "LOW" || rawPriority === "HIGH" ? rawPriority : "MEDIUM";
     const assigneeId = body?.assigneeId ? String(body.assigneeId) : null;
     const dueDate = body?.dueDate ? new Date(body.dueDate) : null;
 
-    // Optional subtasks array
     const subtasksInput = Array.isArray(body?.subtasks) ? body.subtasks : [];
     const subtaskCreates =
       subtasksInput
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "columnId and title are required" }, { status: 400 });
     }
 
-    // Check access: owner or ADMIN/MEMBER in the workspace that owns the column
+    // Access: must be owner/admin/member of the workspace that owns the column
     const workspace = await prisma.workspace.findFirst({
       where: {
         columns: { some: { id: columnId } },
@@ -68,19 +68,26 @@ export async function POST(req: NextRequest) {
       _max: { order: true },
     });
 
+    // Build data dynamically so we only pass fields that exist on the client
+    const data: any = {
+      title,
+      description,                   // subtitle
+      priority,
+      order: (maxOrder._max.order ?? -1) + 1,
+      dueDate,
+      assigneeId: assigneeId || undefined,
+      columnId,
+      ...(subtaskCreates.length ? { subtasks: { create: subtaskCreates } } : {}),
+    };
+
+    // ✅ Pass `details` only if request actually provided one.
+    // (Your create dialog doesn't send it, so we won't include it and old Prisma clients won't complain.)
+    if (typeof body?.details === "string" && body.details.trim().length > 0) {
+      data.details = String(body.details);
+    }
+
     const task = await prisma.task.create({
-      data: {
-        title,
-        description,               // <-- stores "Subtitle"
-        priority,                  // LOW | MEDIUM | HIGH
-        order: (maxOrder._max.order ?? -1) + 1,
-        dueDate,
-        assigneeId: assigneeId || undefined,
-        columnId,
-        ...(subtaskCreates.length
-          ? { subtasks: { create: subtaskCreates } }
-          : {}),
-      },
+      data,
       include: {
         subtasks: true,
         assignee: { select: { id: true, name: true, email: true, image: true } },

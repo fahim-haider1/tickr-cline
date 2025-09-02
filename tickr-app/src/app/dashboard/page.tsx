@@ -62,7 +62,7 @@ type Task = {
   title: string
   description?: string | null // <-- used as "Subtitle"
   priority: "LOW" | "MEDIUM" | "HIGH"
-  // 👇 allow dueDate to come back from the API (string ISO or Date or null)
+  // allow dueDate from API
   dueDate?: string | Date | null
   subtasks?: Subtask[]
 }
@@ -451,6 +451,12 @@ export default function KanbanBoard() {
         const [moved] = fromCol.tasks.splice(fromIndex, 1)
         if (!moved) return prev
         toCol.tasks.splice(toIndex, 0, moved)
+
+        // ✅ Optimistic: if moved to "Done", mark all subtasks complete locally
+        if (toCol.name.toLowerCase() === "done" && Array.isArray(moved.subtasks)) {
+          moved.subtasks = moved.subtasks.map((s) => ({ ...s, completed: true }))
+        }
+
         return copy
       })
 
@@ -467,6 +473,38 @@ export default function KanbanBoard() {
     },
     [selectedWorkspaceId]
   )
+
+  // ---------- Subtask toggle (persist to DB) ----------
+  const toggleSubtask = async (taskId: string, subtaskId: string, completed: boolean) => {
+    // optimistic UI
+    setColumns((prev) =>
+      prev.map((c) => ({
+        ...c,
+        tasks: (c.tasks ?? []).map((t) =>
+          t.id !== taskId
+            ? t
+            : {
+                ...t,
+                subtasks: (t.subtasks ?? []).map((s) =>
+                  s.id === subtaskId ? { ...s, completed } : s
+                ),
+              }
+        ),
+      }))
+    )
+
+    try {
+      await fetch(`/api/subtasks/${subtaskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ completed }),
+      })
+    } catch {
+      if (selectedWorkspaceId) await reloadColumns(selectedWorkspaceId)
+    }
+  }
+  // ----------------------------------------------------
 
   // ---------------- Helpers for filtering (UI-only; DB remains the source of truth) ----------------
   const [filterOpen, setFilterOpen] = useState(false)
@@ -497,7 +535,7 @@ export default function KanbanBoard() {
     // Priority
     if (filterPriority !== "ANY" && task.priority !== filterPriority) return false
 
-    // Due date (DB may hold ISO strings; treat missing gracefully)
+    // Due date
     const rawDue = task.dueDate as any
     const due = rawDue ? new Date(rawDue) : null
     if (filterDue === "OVERDUE") {
@@ -756,7 +794,10 @@ export default function KanbanBoard() {
                                               id={`sub-${task.id}-${sub.id}`}
                                               checked={sub.completed}
                                               className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                              onClick={(e) => e.preventDefault()}
+                                              // ✅ make it interactive
+                                              onCheckedChange={(val) =>
+                                                toggleSubtask(task.id, sub.id, Boolean(val))
+                                              }
                                             />
                                             <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
                                               {sub.title}

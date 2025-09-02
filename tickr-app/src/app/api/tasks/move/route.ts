@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const body = await req.json().catch(() => null) as {
+    const body = (await req.json().catch(() => null)) as {
       taskId?: string
       toColumnId?: string
       toIndex?: number
@@ -53,10 +53,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No access to this workspace" }, { status: 403 })
     }
 
-    // Ensure destination column belongs to the same workspace
+    // Ensure destination column belongs to the same workspace (also need its name)
     const destColumn = await prisma.column.findUnique({
       where: { id: toColumnId },
-      include: { workspace: { select: { id: true } } }
+      select: { id: true, name: true, workspace: { select: { id: true } } }
     })
     if (!destColumn) return NextResponse.json({ error: "Destination column not found" }, { status: 404 })
     if (destColumn.workspace.id !== workspace.id) {
@@ -117,7 +117,8 @@ export async function POST(req: NextRequest) {
     if (toIndex > destList.length) toIndex = destList.length
     destList.splice(toIndex, 0, taskId)
 
-    await prisma.$transaction([
+    // Build transaction ops
+    const ops = [
       // Move task to new column first
       prisma.task.update({
         where: { id: taskId },
@@ -131,7 +132,19 @@ export async function POST(req: NextRequest) {
       ...destList.map((id, idx) =>
         prisma.task.update({ where: { id }, data: { order: idx } })
       ),
-    ])
+    ]
+
+    // ✅ If destination is "Done", mark all subtasks complete (server truth)
+    if (destColumn.name.toLowerCase() === "done") {
+      ops.push(
+        prisma.subtask.updateMany({
+          where: { taskId },
+          data: { completed: true },
+        })
+      )
+    }
+
+    await prisma.$transaction(ops)
 
     return NextResponse.json({ ok: true })
   } catch (e) {

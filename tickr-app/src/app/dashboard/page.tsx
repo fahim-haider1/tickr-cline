@@ -925,7 +925,7 @@ export default function KanbanBoard() {
                 rows={2}
                 value={taskSubtitle}
                 onChange={(e) => setTaskSubtitle(e.target.value)}
-                placeholder="Short subtitle (stored in DB as description)"
+                placeholder="Short subtitle (Optional)"
               />
             </div>
 
@@ -1003,7 +1003,7 @@ export default function KanbanBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* ------------------- /UPDATED CREATE TASK DIALOG ------------------- */}
+      {/* -------- /UPdaTED CReATE TaSK DIALOggG ------------------- */}
     </div>
   )
 }

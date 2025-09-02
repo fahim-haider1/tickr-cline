@@ -1,3 +1,4 @@
+// src/components/ui/progress.tsx
 "use client"
 
 import * as React from "react"
@@ -16,15 +17,15 @@ const Progress = React.forwardRef<
       ref={ref}
       value={clamped}
       className={cn(
-        "relative h-2 w-full overflow-hidden rounded-full bg-secondary", // track color from theme
+        "relative h-2 w-full overflow-hidden rounded-full bg-secondary", // track
         className
       )}
       {...props}
     >
       <ProgressPrimitive.Indicator
         className={cn(
-          "h-full w-full flex-1 transition-transform duration-300 ease-in-out",
-          isComplete ? "bg-success" : "bg-primary" // ✅ uses theme vars
+          "h-full w-full flex-1 transition-transform duration-300 ease-in-out rounded-full",
+          isComplete ? "bg-success" : "bg-primary" // ✅ global CSS variables
         )}
         style={{ transform: `translateX(-${100 - clamped}%)` }}
       />

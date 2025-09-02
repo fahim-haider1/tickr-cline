@@ -864,12 +864,19 @@ export default function KanbanBoard() {
                                           )}
 
                                           {/* Progress bar (always visible) */}
-                                          <div className="mb-3">
-                                            <Progress value={pct} className="h-2 w-full border border-border rounded-full" />
-                                            <span className="text-[10px] text-muted-foreground mt-1 block">
-                                              {totalSubs > 0 ? `${doneSubs}/${totalSubs} subtasks` : "No subtasks"}
-                                            </span>
-                                          </div>
+                                          
+<div className="mb-3">
+  <Progress
+    value={pct}
+    className={`h-2 w-full rounded-full ${
+      pct === 100 ? "bg-success" : "bg-primary"
+    }`}
+  />
+  <span className="text-[10px] text-muted-foreground mt-1 block">
+    {totalSubs > 0 ? `${doneSubs}/${totalSubs} subtasks` : "No subtasks"}
+  </span>
+</div>
+
 
                                           {/* Due date + Assignee inline on the card */}
                                           <div className="mt-1 mb-2 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">

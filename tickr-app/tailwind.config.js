@@ -50,7 +50,7 @@ module.exports = {
           foreground: "hsl(var(--card-foreground))",
         },
 
-        /* 👇 Enables bg-sidebar, text-sidebar-foreground, border-sidebar-border, etc. */
+        // 👇 Enables bg-sidebar, text-sidebar-foreground, etc.
         sidebar: {
           DEFAULT: "hsl(var(--sidebar))",
           foreground: "hsl(var(--sidebar-foreground))",
@@ -61,6 +61,12 @@ module.exports = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+
+        // 👇 Added global success color (green)
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -68,7 +74,6 @@ module.exports = {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        /* picks up --font-sans / --font-mono from globals.css */
         sans: ["var(--font-sans)", ...require("tailwindcss/defaultTheme").fontFamily.sans],
         serif: ["var(--font-serif)", ...require("tailwindcss/defaultTheme").fontFamily.serif],
         mono: ["var(--font-mono)", ...require("tailwindcss/defaultTheme").fontFamily.mono],

@@ -690,7 +690,7 @@ export default function KanbanBoard() {
           <div className="flex items-center justify-between">
             {!sidebarCollapsed && (
               <span className="text-base font-semibold mx-auto">
-                Workspaces
+                Workspaces...
               </span>
             )}
             <button

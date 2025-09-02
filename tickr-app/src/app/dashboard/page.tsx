@@ -55,6 +55,9 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd"
 
+// ✅ NEW: shadcn progress bar
+import { Progress } from "@/components/ui/progress"
+
 // ----------------- (types unchanged except we use description as Subtitle) -----------------
 type Subtask = { id: string; title: string; completed: boolean }
 type Task = {
@@ -62,7 +65,7 @@ type Task = {
   title: string
   description?: string | null // <-- used as "Subtitle"
   priority: "LOW" | "MEDIUM" | "HIGH"
-  // allow dueDate from API
+  // 👇 allow dueDate to come back from the API (string ISO or Date or null)
   dueDate?: string | Date | null
   subtasks?: Subtask[]
 }
@@ -506,6 +509,47 @@ export default function KanbanBoard() {
   }
   // ----------------------------------------------------
 
+  // ---------- NEW: Task view dialog state + delete ----------
+  const [viewOpen, setViewOpen] = useState(false)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const activeTask = useMemo(() => {
+    if (!activeTaskId) return null
+    for (const c of columns) {
+      const t = (c.tasks ?? []).find((x) => x.id === activeTaskId)
+      if (t) return t
+    }
+    return null
+  }, [activeTaskId, columns])
+
+  const openTaskView = (taskId: string) => {
+    setActiveTaskId(taskId)
+    setViewOpen(true)
+  }
+
+  const deleteTask = async (taskId: string, columnId?: string) => {
+    // optimistic removal from UI
+    setColumns((prev) =>
+      prev.map((c) =>
+        c.id === columnId
+          ? { ...c, tasks: (c.tasks ?? []).filter((t) => t.id !== taskId) }
+          : c
+      )
+    )
+    if (activeTaskId === taskId) {
+      setViewOpen(false)
+      setActiveTaskId(null)
+    }
+    try {
+      await fetch(`/api/tasks/${taskId}`, {
+        method: "DELETE",
+        credentials: "include",
+      })
+    } finally {
+      if (selectedWorkspaceId) await reloadColumns(selectedWorkspaceId)
+    }
+  }
+  // ----------------------------------------------------------
+
   // ---------------- Helpers for filtering (UI-only; DB remains the source of truth) ----------------
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterColumnId, setFilterColumnId] = useState<string>("__all__") // __all__ or a column id
@@ -535,7 +579,7 @@ export default function KanbanBoard() {
     // Priority
     if (filterPriority !== "ANY" && task.priority !== filterPriority) return false
 
-    // Due date
+    // Due date (DB may hold ISO strings; treat missing gracefully)
     const rawDue = task.dueDate as any
     const due = rawDue ? new Date(rawDue) : null
     if (filterDue === "OVERDUE") {
@@ -643,7 +687,7 @@ export default function KanbanBoard() {
             <img src="/Group 5 (2).svg" alt="Tickr" className="h-6 w-auto" />
           </div>
 
-          <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4">
             <Button variant="outline" className="hidden sm:inline-flex">
               Dashboard
             </Button>
@@ -762,55 +806,92 @@ export default function KanbanBoard() {
                           {...dropProvided.droppableProps}
                           className={`space-y-3 min-h-10 pb-1 ${dropSnapshot.isDraggingOver ? "bg-muted/40 rounded-md" : ""}`}
                         >
-                          {tasksToRender.map((task, index) => (
-                            <Draggable key={task.id} draggableId={task.id} index={index}>
-                              {(dragProvided, dragSnapshot) => (
-                                <div
-                                  ref={dragProvided.innerRef}
-                                  {...dragProvided.draggableProps}
-                                  {...dragProvided.dragHandleProps}
-                                  className={dragSnapshot.isDragging ? "opacity-80" : ""}
-                                >
-                                  <Card className="bg-card border-border">
-                                    <CardContent className="p-4">
-                                      <div className="flex items-center gap-2 mb-3">
-                                        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
-                                          <span className="inline-block size-1.5 rounded-full bg-current/70" />
-                                          <span className="font-medium">
-                                            {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
-                                          </span>
-                                        </div>
-                                      </div>
+                          {tasksToRender.map((task, index) => {
+                            const totalSubs = (task.subtasks ?? []).length
+                            const doneSubs = (task.subtasks ?? []).filter(s => s.completed).length
+                            const pct = totalSubs ? Math.round((doneSubs / totalSubs) * 100) : 0
 
-                                      <h3 className="font-medium mb-1">{task.title}</h3>
-                                      {task.description && (
-                                        <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
-                                      )}
+                            return (
+                              <Draggable key={task.id} draggableId={task.id} index={index}>
+                                {(dragProvided, dragSnapshot) => (
+                                  <div
+                                    ref={dragProvided.innerRef}
+                                    {...dragProvided.draggableProps}
+                                    {...dragProvided.dragHandleProps}
+                                    className={dragSnapshot.isDragging ? "opacity-80" : ""}
+                                  >
+                                    {/* group + relative for hover delete; clicking opens view */}
+                                    <Card
+                                      className="bg-card border-border group relative cursor-pointer"
+                                      onClick={() => openTaskView(task.id)}
+                                    >
+                                      {/* Hover delete button (top-right) */}
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-600"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          deleteTask(task.id, column.id)
+                                        }}
+                                        aria-label="Delete task"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
 
-                                      <div className="space-y-2">
-                                        {(task.subtasks ?? []).map((sub) => (
-                                          <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
-                                            <Checkbox
-                                              id={`sub-${task.id}-${sub.id}`}
-                                              checked={sub.completed}
-                                              className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                              // ✅ make it interactive
-                                              onCheckedChange={(val) =>
-                                                toggleSubtask(task.id, sub.id, Boolean(val))
-                                              }
-                                            />
-                                            <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
-                                              {sub.title}
+                                      <CardContent className="p-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
+                                            <span className="inline-block size-1.5 rounded-full bg-current/70" />
+                                            <span className="font-medium">
+                                              {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
                                             </span>
-                                          </label>
-                                        ))}
-                                      </div>
-                                    </CardContent>
-                                  </Card>
-                                </div>
-                              )}
-                            </Draggable>
-                          ))}
+                                          </div>
+                                        </div>
+
+                                        <h3 className="font-medium mb-1">{task.title}</h3>
+                                        {task.description && (
+                                          <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
+                                        )}
+
+                                        {/* Progress bar based on subtasks (thin line, no numbers) */}
+                                        {totalSubs > 0 && (
+                                          <div className="mb-3">
+                                            <Progress
+                                              value={pct}
+                                              className="h-1.5 rounded-full overflow-hidden bg-white/30 [&>div]:bg-fuchsia-500"
+                                            />
+                                          </div>
+                                        )}
+
+                                        <div className="space-y-2">
+                                          {(task.subtasks ?? []).map((sub) => (
+                                            <label
+                                              key={sub.id}
+                                              className="flex items-center gap-2 text-xs cursor-pointer"
+                                              onClick={(e) => e.stopPropagation()} // don't open dialog when clicking a subtask
+                                            >
+                                              <Checkbox
+                                                id={`sub-${task.id}-${sub.id}`}
+                                                checked={sub.completed}
+                                                className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                                onCheckedChange={(val) =>
+                                                  toggleSubtask(task.id, sub.id, Boolean(val))
+                                                }
+                                              />
+                                              <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
+                                                {sub.title}
+                                              </span>
+                                            </label>
+                                          ))}
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  </div>
+                                )}
+                              </Draggable>
+                            )
+                          })}
                           {dropProvided.placeholder}
                         </div>
                       )}
@@ -1224,6 +1305,74 @@ export default function KanbanBoard() {
         </DialogContent>
       </Dialog>
       {/* ------------------- /FILTER DIALOG ------------------- */}
+
+      {/* ------------------- NEW: VIEW TASK DIALOG ------------------- */}
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{activeTask?.title ?? "Task"}</DialogTitle>
+            <DialogDescription className="sr-only">Task details</DialogDescription>
+          </DialogHeader>
+
+          {activeTask && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(activeTask.priority)}`}>
+                  <span className="inline-block size-1.5 rounded-full bg-current/70" />
+                  <span className="font-medium">
+                    {activeTask.priority === "HIGH" ? "High" : activeTask.priority === "MEDIUM" ? "Medium" : "Low"}
+                  </span>
+                </div>
+                {activeTask.dueDate && (
+                  <span className="text-xs text-muted-foreground">
+                    Due {new Date(activeTask.dueDate as any).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+
+              {activeTask.description && (
+                <p className="text-sm text-muted-foreground">{activeTask.description}</p>
+              )}
+
+              {/* progress (if subtasks) */}
+              {(activeTask.subtasks ?? []).length > 0 && (() => {
+                const total = (activeTask.subtasks ?? []).length
+                const done = (activeTask.subtasks ?? []).filter(s => s.completed).length
+                const pct = total ? Math.round((done / total) * 100) : 0
+                return (
+                  <div>
+                    <Progress value={pct} className="h-1.5 rounded-full overflow-hidden bg-white/30 [&>div]:bg-fuchsia-500" />
+                  </div>
+                )
+              })()}
+
+              <div className="space-y-2">
+                {(activeTask.subtasks ?? []).map((sub) => (
+                  <label
+                    key={sub.id}
+                    className="flex items-center gap-2 text-sm cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Checkbox
+                      checked={sub.completed}
+                      onCheckedChange={(val) => toggleSubtask(activeTask.id, sub.id, Boolean(val))}
+                      className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                    />
+                    <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
+                      {sub.title}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setViewOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ------------------- /NEW: VIEW TASK DIALOG ------------------- */}
     </div>
   )
 }

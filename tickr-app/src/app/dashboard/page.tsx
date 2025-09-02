@@ -34,6 +34,7 @@ import {
   Check,
   X,
   Minus,
+  Filter as FilterIcon,
 } from "lucide-react"
 import { SignOutButton } from "@clerk/nextjs"
 
@@ -61,6 +62,8 @@ type Task = {
   title: string
   description?: string | null // <-- used as "Subtitle"
   priority: "LOW" | "MEDIUM" | "HIGH"
+  // 👇 allow dueDate to come back from the API (string ISO or Date or null)
+  dueDate?: string | Date | null
   subtasks?: Subtask[]
 }
 type Column = {
@@ -131,6 +134,7 @@ export default function KanbanBoard() {
   const [taskSaving, setTaskSaving] = useState(false)
   // ------------------------------------------------------------
 
+  // ✅ column rename state
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
   const [editColumnName, setEditColumnName] = useState<string>("")
 
@@ -464,6 +468,61 @@ export default function KanbanBoard() {
     [selectedWorkspaceId]
   )
 
+  // ---------------- Helpers for filtering (UI-only; DB remains the source of truth) ----------------
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [filterColumnId, setFilterColumnId] = useState<string>("__all__") // __all__ or a column id
+  const [filterPriority, setFilterPriority] = useState<"ANY" | "LOW" | "MEDIUM" | "HIGH">("ANY")
+  const [filterDue, setFilterDue] = useState<"ANY" | "OVERDUE" | "TODAY" | "WEEK" | "NONE">("ANY")
+  const [filterCompletion, setFilterCompletion] = useState<"ANY" | "COMPLETE" | "INCOMPLETE">("ANY")
+
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+
+  const isWithinNext7Days = (d: Date) => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const in7 = new Date(today)
+    in7.setDate(in7.getDate() + 7)
+    return d >= today && d <= in7
+  }
+
+  const isTaskComplete = (task: Task, columnName: string) => {
+    const inDoneColumn = columnName.toLowerCase() === "done"
+    const hasSubs = (task.subtasks ?? []).length > 0
+    const allSubsDone = hasSubs && (task.subtasks ?? []).every((s) => s.completed)
+    return inDoneColumn || allSubsDone
+  }
+
+  const taskPassesFilters = (task: Task, columnName: string) => {
+    // Priority
+    if (filterPriority !== "ANY" && task.priority !== filterPriority) return false
+
+    // Due date (DB may hold ISO strings; treat missing gracefully)
+    const rawDue = task.dueDate as any
+    const due = rawDue ? new Date(rawDue) : null
+    if (filterDue === "OVERDUE") {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (!due || due >= today) return false
+    } else if (filterDue === "TODAY") {
+      if (!due || !isSameDay(due, new Date())) return false
+    } else if (filterDue === "WEEK") {
+      if (!due || !isWithinNext7Days(due)) return false
+    } else if (filterDue === "NONE") {
+      if (due) return false
+    }
+
+    // Completion
+    if (filterCompletion !== "ANY") {
+      const complete = isTaskComplete(task, columnName)
+      if (filterCompletion === "COMPLETE" && !complete) return false
+      if (filterCompletion === "INCOMPLETE" && complete) return false
+    }
+
+    return true
+  }
+  // --------------------------------------------------------------------------------------
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* 🔽 ensure new users are synced to DB */}
@@ -584,123 +643,140 @@ export default function KanbanBoard() {
               <h1 className="text-2xl font-semibold mb-2">Welcome Back</h1>
               <p className="text-muted-foreground">Here's what's happening with your projects today</p>
             </div>
-            <Button className="bg-primary text-primary-foreground hover:opacity-90" onClick={addColumn}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Column
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* NEW: Filter button (left of Add Column) */}
+              <Button variant="outline" onClick={() => setFilterOpen(true)}>
+                <FilterIcon className="w-4 h-4 mr-2" />
+                Filter
+              </Button>
+
+              <Button className="bg-primary text-primary-foreground hover:opacity-90" onClick={addColumn}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Column
+              </Button>
+            </div>
           </div>
 
           <DragDropContext onDragEnd={onDragEnd}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {columns.map((column) => (
-                <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {editingColumnId === column.id ? (
-                        <Input
-                          value={editColumnName}
-                          onChange={(e) => setEditColumnName(e.target.value)}
-                          onBlur={() => renameColumn(column.id, editColumnName)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") renameColumn(column.id, editColumnName)
-                          }}
-                          className="h-7"
-                          autoFocus
-                        />
-                      ) : (
-                        <span
-                          className="text-sm font-medium cursor-pointer"
-                          onClick={() => {
-                            setEditingColumnId(column.id)
-                            setEditColumnName(column.name)
-                          }}
-                        >
-                          {column.name}
-                        </span>
-                      )}
-                      <Badge variant="secondary" className="text-xs">{column.tasks?.length ?? 0}</Badge>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-muted-foreground hover:text-foreground"
-                        onClick={() => openTaskDialogFor(column.id)}
-                        aria-label="Add task"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-red-500 hover:text-red-600 h-7 w-7"
-                        onClick={() => deleteColumn(column.id)}
-                        aria-label="Delete column"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
+              {columns.map((column) => {
+                const shouldFilterThisColumn =
+                  filterColumnId === "__all__" || filterColumnId === column.id
 
-                  <Droppable droppableId={column.id} type="TASK">
-                    {(dropProvided, dropSnapshot) => (
-                      <div
-                        ref={dropProvided.innerRef}
-                        {...dropProvided.droppableProps}
-                        className={`space-y-3 min-h-10 pb-1 ${dropSnapshot.isDraggingOver ? "bg-muted/40 rounded-md" : ""}`}
-                      >
-                        {(column.tasks ?? []).map((task, index) => (
-                          <Draggable key={task.id} draggableId={task.id} index={index}>
-                            {(dragProvided, dragSnapshot) => (
-                              <div
-                                ref={dragProvided.innerRef}
-                                {...dragProvided.draggableProps}
-                                {...dragProvided.dragHandleProps}
-                                className={dragSnapshot.isDragging ? "opacity-80" : ""}
-                              >
-                                <Card className="bg-card border-border">
-                                  <CardContent className="p-4">
-                                    <div className="flex items-center gap-2 mb-3">
-                                      <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
-                                        <span className="inline-block size-1.5 rounded-full bg-current/70" />
-                                        <span className="font-medium">
-                                          {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
-                                        </span>
-                                      </div>
-                                    </div>
+                const tasksToRender = shouldFilterThisColumn
+                  ? (column.tasks ?? []).filter((t) => taskPassesFilters(t, column.name))
+                  : (column.tasks ?? [])
 
-                                    <h3 className="font-medium mb-1">{task.title}</h3>
-                                    {task.description && (
-                                      <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
-                                    )}
-
-                                    <div className="space-y-2">
-                                      {(task.subtasks ?? []).map((sub) => (
-                                        <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
-                                          <Checkbox
-                                            id={`sub-${task.id}-${sub.id}`}
-                                            checked={sub.completed}
-                                            className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-                                            onClick={(e) => e.preventDefault()}
-                                          />
-                                          <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
-                                            {sub.title}
-                                          </span>
-                                        </label>
-                                      ))}
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              </div>
-                            )}
-                          </Draggable>
-                        ))}
-                        {dropProvided.placeholder}
+                return (
+                  <div key={column.id} className="rounded-lg p-4 space-y-4 bg-card border border-border">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {editingColumnId === column.id ? (
+                          <Input
+                            value={editColumnName}
+                            onChange={(e) => setEditColumnName(e.target.value)}
+                            onBlur={() => renameColumn(column.id, editColumnName)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") renameColumn(column.id, editColumnName)
+                            }}
+                            className="h-7"
+                            autoFocus
+                          />
+                        ) : (
+                          <span
+                            className="text-sm font-medium cursor-pointer"
+                            onClick={() => {
+                              setEditingColumnId(column.id)
+                              setEditColumnName(column.name)
+                            }}
+                          >
+                            {column.name}
+                          </span>
+                        )}
+                        <Badge variant="secondary" className="text-xs">{tasksToRender.length}</Badge>
                       </div>
-                    )}
-                  </Droppable>
-                </div>
-              ))}
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => openTaskDialogFor(column.id)}
+                          aria-label="Add task"
+                        >
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-red-500 hover:text-red-600 h-7 w-7"
+                          onClick={() => deleteColumn(column.id)}
+                          aria-label="Delete column"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <Droppable droppableId={column.id} type="TASK">
+                      {(dropProvided, dropSnapshot) => (
+                        <div
+                          ref={dropProvided.innerRef}
+                          {...dropProvided.droppableProps}
+                          className={`space-y-3 min-h-10 pb-1 ${dropSnapshot.isDraggingOver ? "bg-muted/40 rounded-md" : ""}`}
+                        >
+                          {tasksToRender.map((task, index) => (
+                            <Draggable key={task.id} draggableId={task.id} index={index}>
+                              {(dragProvided, dragSnapshot) => (
+                                <div
+                                  ref={dragProvided.innerRef}
+                                  {...dragProvided.draggableProps}
+                                  {...dragProvided.dragHandleProps}
+                                  className={dragSnapshot.isDragging ? "opacity-80" : ""}
+                                >
+                                  <Card className="bg-card border-border">
+                                    <CardContent className="p-4">
+                                      <div className="flex items-center gap-2 mb-3">
+                                        <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs ${getPriorityTint(task.priority)}`}>
+                                          <span className="inline-block size-1.5 rounded-full bg-current/70" />
+                                          <span className="font-medium">
+                                            {task.priority === "HIGH" ? "High" : task.priority === "MEDIUM" ? "Medium" : "Low"}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <h3 className="font-medium mb-1">{task.title}</h3>
+                                      {task.description && (
+                                        <p className="text-sm text-muted-foreground mb-3">{task.description}</p>
+                                      )}
+
+                                      <div className="space-y-2">
+                                        {(task.subtasks ?? []).map((sub) => (
+                                          <label key={sub.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                                            <Checkbox
+                                              id={`sub-${task.id}-${sub.id}`}
+                                              checked={sub.completed}
+                                              className="border-border data-[state=checked]:bg-primary data-[state=checked]:border-primary"
+                                              onClick={(e) => e.preventDefault()}
+                                            />
+                                            <span className={sub.completed ? "line-through text-primary" : "text-muted-foreground"}>
+                                              {sub.title}
+                                            </span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                </div>
+                              )}
+                            </Draggable>
+                          ))}
+                          {dropProvided.placeholder}
+                        </div>
+                      )}
+                    </Droppable>
+                  </div>
+                )
+              })}
 
               {columns.length === 0 && (
                 <div className="text-sm text-muted-foreground">
@@ -1003,7 +1079,110 @@ export default function KanbanBoard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* -------- /UPdaTED CReATE TaSK DIALOggG ------------------- */}
+      {/* -------- /UPDATED CREATE TASK DIALOG ------------------- */}
+
+      {/* ------------------- FILTER DIALOG ------------------- */}
+      <Dialog open={filterOpen} onOpenChange={setFilterOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Filter Tasks</DialogTitle>
+            <DialogDescription className="sr-only">
+              Filter a single column or all columns by priority, due date and completion.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* Which column to filter */}
+            <div className="space-y-2">
+              <Label>Column</Label>
+              <Select value={filterColumnId} onValueChange={setFilterColumnId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All columns" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All columns</SelectItem>
+                  {columns.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Priority */}
+            <div className="space-y-2">
+              <Label>Priority</Label>
+              <Select value={filterPriority} onValueChange={(v: "ANY" | "LOW" | "MEDIUM" | "HIGH") => setFilterPriority(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Any" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ANY">Any</SelectItem>
+                  <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="MEDIUM">Medium</SelectItem>
+                  <SelectItem value="LOW">Low</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Due date */}
+            <div className="space-y-2">
+              <Label>Due date</Label>
+              <Select
+                value={filterDue}
+                onValueChange={(v: "ANY" | "OVERDUE" | "TODAY" | "WEEK" | "NONE") => setFilterDue(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Any" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ANY">Any</SelectItem>
+                  <SelectItem value="OVERDUE">Overdue</SelectItem>
+                  <SelectItem value="TODAY">Due today</SelectItem>
+                  <SelectItem value="WEEK">Due in next 7 days</SelectItem>
+                  <SelectItem value="NONE">No due date</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Completion */}
+            <div className="space-y-2">
+              <Label>Completion</Label>
+              <Select
+                value={filterCompletion}
+                onValueChange={(v: "ANY" | "COMPLETE" | "INCOMPLETE") => setFilterCompletion(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Any" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ANY">Any</SelectItem>
+                  <SelectItem value="COMPLETE">Complete</SelectItem>
+                  <SelectItem value="INCOMPLETE">Incomplete</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setFilterColumnId("__all__")
+                setFilterPriority("ANY")
+                setFilterDue("ANY")
+                setFilterCompletion("ANY")
+                setFilterOpen(false)
+              }}
+            >
+              Reset
+            </Button>
+            <Button onClick={() => setFilterOpen(false)}>Apply</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* ------------------- /FILTER DIALOG ------------------- */}
     </div>
   )
 }

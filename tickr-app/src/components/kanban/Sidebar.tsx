@@ -1,4 +1,3 @@
-// src/components/kanban/Sidebar.tsx
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -35,18 +34,18 @@ export default function Sidebar({
   editWorkspace,
   deleteWorkspace,
 }: Props) {
-  // NEW: invitations state (local-only)
   const [invites, setInvites] = useState<Invite[]>([]);
 
   const loadInvites = useCallback(async () => {
     try {
-      const res = await fetch("/api/invitations/pending", { cache: "no-store" });
+      const res = await fetch("/api/invitations/pending", {
+        cache: "no-store",
+        credentials: "include",
+      });
       if (!res.ok) return;
       const data = (await res.json()) as Invite[];
       setInvites(data);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -55,18 +54,22 @@ export default function Sidebar({
 
   const accept = async (id: string) => {
     try {
-      const res = await fetch(`/api/invitations/${id}/accept`, { method: "POST" });
+      const res = await fetch(`/api/invitations/${id}/accept`, {
+        method: "POST",
+        credentials: "include",
+      });
       if (res.ok) {
         setInvites((prev) => prev.filter((i) => i.id !== id));
-        // optionally force a refresh so new workspace appears:
-        // window.location.reload();
       }
     } catch {}
   };
 
   const decline = async (id: string) => {
     try {
-      const res = await fetch(`/api/invitations/${id}/decline`, { method: "POST" });
+      const res = await fetch(`/api/invitations/${id}/decline`, {
+        method: "POST",
+        credentials: "include",
+      });
       if (res.ok) setInvites((prev) => prev.filter((i) => i.id !== id));
     } catch {}
   };
@@ -136,7 +139,6 @@ export default function Sidebar({
             {!collapsed ? "Add New Workspace" : <Plus className="w-4 h-4" />}
           </Button>
 
-          {/* NEW: Invitations list under the "Add New Workspace" button */}
           {!collapsed && (
             <div className="pt-4">
               <div className="mb-2 flex items-center justify-between">

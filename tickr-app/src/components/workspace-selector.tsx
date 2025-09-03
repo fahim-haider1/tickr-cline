@@ -1,4 +1,3 @@
-// src/components/workspace-selector.tsx
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -58,7 +57,6 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // NEW: invites state
   const [invites, setInvites] = useState<PendingInvite[]>([]);
   const [invitesOpen, setInvitesOpen] = useState(false);
   const hasInvites = invites.length > 0;
@@ -83,10 +81,12 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
     }
   }, [onWorkspaceSelect, selectedWorkspaceId]);
 
-  // NEW: fetch pending invites
   const fetchInvites = useCallback(async () => {
     try {
-      const res = await fetch('/api/invitations/pending', { cache: 'no-store' });
+      const res = await fetch('/api/invitations/pending', {
+        cache: 'no-store',
+        credentials: 'include',
+      });
       if (res.ok) {
         const data: PendingInvite[] = await res.json();
         setInvites(data);
@@ -106,13 +106,14 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
     onWorkspaceSelect(newWorkspace);
   };
 
-  // NEW: accept / decline handlers
   const acceptInvite = async (id: string) => {
     try {
-      const res = await fetch(`/api/invitations/${id}/accept`, { method: 'POST' });
+      const res = await fetch(`/api/invitations/${id}/accept`, {
+        method: 'POST',
+        credentials: 'include',
+      });
       if (res.ok) {
         setInvites(prev => prev.filter(i => i.id !== id));
-        // Refresh workspaces so the newly-joined one appears
         await fetchWorkspaces();
       } else {
         const j = await res.json().catch(() => ({}));
@@ -125,7 +126,10 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
 
   const declineInvite = async (id: string) => {
     try {
-      const res = await fetch(`/api/invitations/${id}/decline`, { method: 'POST' });
+      const res = await fetch(`/api/invitations/${id}/decline`, {
+        method: 'POST',
+        credentials: 'include',
+      });
       if (res.ok) {
         setInvites(prev => prev.filter(i => i.id !== id));
       } else {
@@ -145,7 +149,6 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
 
   return (
     <div className="space-y-4">
-      {/* Workspace picker */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" className="w-full justify-between">
@@ -169,12 +172,10 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          {/* "Add New Workspace" is provided via this dialog, unchanged */}
           <CreateWorkspaceDialog onWorkspaceCreated={handleWorkspaceCreated} />
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* NEW: Invitations button under the selector */}
       <Dialog open={invitesOpen} onOpenChange={setInvitesOpen}>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full justify-start" size="sm">

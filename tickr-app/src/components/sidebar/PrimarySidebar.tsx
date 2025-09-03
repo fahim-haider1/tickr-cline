@@ -1,4 +1,3 @@
-// src/components/sidebar/PrimarySidebar.tsx
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
@@ -6,10 +5,7 @@ import { Button } from "@/components/ui/button"
 import { ChevronRight, Plus } from "lucide-react"
 import { WorkspaceSelector } from "@/components/workspace-selector"
 
-interface WS {
-  id: string
-  name: string
-}
+interface WS { id: string; name: string }
 export interface PrimarySidebarProps {
   selectedWorkspaceId?: string
   onWorkspaceSelect: (ws: WS | null) => void
@@ -34,8 +30,10 @@ export default function PrimarySidebar({
   const [invites, setInvites] = useState<Invite[]>([])
   const loadInvites = useCallback(async () => {
     try {
-      // 🔁 point to the pending-invites endpoint
-      const res = await fetch("/api/invitations/pending", { cache: "no-store" })
+      const res = await fetch("/api/invitations/pending", {
+        cache: "no-store",
+        credentials: "include",
+      })
       if (!res.ok) return
       const data = (await res.json()) as Invite[]
       setInvites(data)
@@ -48,19 +46,21 @@ export default function PrimarySidebar({
 
   const accept = async (id: string) => {
     try {
-      const res = await fetch(`/api/invitations/${id}/accept`, { method: "POST" })
-      if (res.ok) {
-        setInvites(prev => prev.filter(i => i.id !== id))
-        // optionally: await loadInvites()
-      }
+      const res = await fetch(`/api/invitations/${id}/accept`, {
+        method: "POST",
+        credentials: "include",
+      })
+      if (res.ok) setInvites(prev => prev.filter(i => i.id !== id))
     } catch {}
   }
 
   const decline = async (id: string) => {
     try {
-      const res = await fetch(`/api/invitations/${id}/decline`, { method: "POST" })
+      const res = await fetch(`/api/invitations/${id}/decline`, {
+        method: "POST",
+        credentials: "include",
+      })
       if (res.ok) setInvites(prev => prev.filter(i => i.id !== id))
-      // optionally: await loadInvites()
     } catch {}
   }
 
@@ -88,7 +88,6 @@ export default function PrimarySidebar({
 
       {/* Body */}
       <div className="px-4">
-        {/* workspace selector */}
         <div className={`${open ? "block" : "hidden"} mb-4`}>
           <WorkspaceSelector
             onWorkspaceSelect={(ws) => onWorkspaceSelect(ws as unknown as WS | null)}
@@ -96,7 +95,6 @@ export default function PrimarySidebar({
           />
         </div>
 
-        {/* static list (left untouched) */}
         <div className={`${open ? "space-y-2" : "hidden"}`}>
           <div className="rounded-lg px-3 py-2 text-sm" style={{ background: "var(--sidebar-accent)" }}>
             <span className="text-sidebar-accent-foreground">Personal</span>
@@ -109,7 +107,6 @@ export default function PrimarySidebar({
           </div>
         </div>
 
-        {/* Create workspace */}
         <div className={`${open ? "block" : "hidden"} pt-6`}>
           <Button
             onClick={onCreateWorkspace}
@@ -120,7 +117,6 @@ export default function PrimarySidebar({
           </Button>
         </div>
 
-        {/* Invitations section */}
         <div className={`${open ? "block" : "hidden"} pt-4`}>
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wide opacity-70">Invitations</span>

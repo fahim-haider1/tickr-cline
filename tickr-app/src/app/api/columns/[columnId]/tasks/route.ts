@@ -6,10 +6,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-export async function POST(
-  req: NextRequest,
-  context: { params: { columnId: string } }
-) {
+type Params = { columnId: string }
+
+// POST: create a task in a column
+export async function POST(req: NextRequest, context: { params: Params }) {
   try {
     const { columnId } = context.params
     const { userId } = await auth()
@@ -21,15 +21,11 @@ export async function POST(
     const { title, description, priority, dueDate, assigneeId, subtasks } = body
 
     if (!title?.trim()) {
-      return NextResponse.json({ error: "Title is required" }, { status: 400 })
+      return NextResponse.json({ error: "Title required" }, { status: 400 })
     }
 
-    // Compute next order
-    const maxOrder = await prisma.task.aggregate({
-      where: { columnId },
-      _max: { order: true },
-    })
-    const nextOrder = (maxOrder._max.order ?? 0) + 1
+    // Count tasks in the column for `order`
+    const count = await prisma.task.count({ where: { columnId } })
 
     const task = await prisma.task.create({
       data: {
@@ -39,22 +35,20 @@ export async function POST(
         dueDate: dueDate ? new Date(dueDate) : null,
         columnId,
         assigneeId: assigneeId ?? null,
-        order: nextOrder,
-        subtasks: subtasks
-          ? {
-              create: subtasks.map((st: any, idx: number) => ({
-                title: st.title,
-                order: idx,
-              })),
-            }
-          : undefined,
+        order: count, // ensure required order field
+        subtasks: {
+          create: (subtasks ?? []).map((s: any, idx: number) => ({
+            title: s.title,
+            order: idx,
+          })),
+        },
       },
       include: { subtasks: true },
     })
 
     return NextResponse.json(task, { status: 201 })
-  } catch (e) {
-    console.error("POST /api/columns/[columnId]/tasks error:", e)
+  } catch (err) {
+    console.error("POST /api/columns/[columnId]/tasks error:", err)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

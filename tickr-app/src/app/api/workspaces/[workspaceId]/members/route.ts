@@ -19,9 +19,9 @@ function canon(email: string) {
 
 export async function GET(
   _req: Request,
-  ctx: { params: Promise<{ workspaceId: string }> }
+  { params }: { params: { workspaceId: string } }
 ) {
-  const { workspaceId } = await ctx.params
+  const { workspaceId } = params
   const { userId } = await auth()
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -37,7 +37,14 @@ export async function GET(
     where: { workspaceId },
     include: {
       user: {
-        select: { id: true, email: true, name: true, image: true, createdAt: true, updatedAt: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          image: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       },
     },
     orderBy: { joinedAt: "asc" },
@@ -46,12 +53,11 @@ export async function GET(
   return NextResponse.json(members)
 }
 
-// Create an invitation (ADMINs only)
 export async function POST(
   req: Request,
-  ctx: { params: Promise<{ workspaceId: string }> }
+  { params }: { params: { workspaceId: string } }
 ) {
-  const { workspaceId } = await ctx.params
+  const { workspaceId } = params
 
   const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
   if ("error" in authz) {
@@ -69,7 +75,6 @@ export async function POST(
   }
   const emailNorm = canon(emailLower)
 
-  // If inviting as ADMIN, enforce ≤2 admins
   if (role === "ADMIN") {
     const adminCount = await prisma.workspaceMember.count({
       where: { workspaceId, role: "ADMIN" },
@@ -82,14 +87,12 @@ export async function POST(
     }
   }
 
-  // Block inviting owner or existing member
   const ws = await prisma.workspace.findUnique({
     where: { id: workspaceId },
     select: { id: true, ownerId: true },
   })
   if (!ws) return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
 
-  // find existing user by either raw or canonical email
   const existingUser = await prisma.user.findFirst({
     where: {
       OR: [
@@ -114,7 +117,6 @@ export async function POST(
     }
   }
 
-  // Reuse existing pending invite if present (check both raw & canonical)
   const existingPending = await prisma.workspaceInvite.findFirst({
     where: {
       workspaceId,
@@ -130,7 +132,6 @@ export async function POST(
     return NextResponse.json(existingPending, { status: 200 })
   }
 
-  // Create invite using canonical email (consistent matching for Gmail accounts)
   const invite = await prisma.workspaceInvite.create({
     data: {
       workspaceId,

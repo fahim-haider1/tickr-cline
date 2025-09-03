@@ -1,24 +1,13 @@
-import { NextRequest, NextResponse } from "next/server"
-import { auth } from "@clerk/nextjs/server"
+// src/app/api/workspaces/[workspaceId]/members/route.ts
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireWorkspaceAuth } from "@/lib/workspaceAuth"
+import { auth } from "@clerk/nextjs/server"
 
-function canon(email: string) {
-  const e = email.trim().toLowerCase()
-  const [localRaw, domainRaw = ""] = e.split("@")
-  const domain = domainRaw.toLowerCase()
-  let local = localRaw.toLowerCase()
-  if (domain === "gmail.com" || domain === "googlemail.com") {
-    local = local.split("+")[0].replace(/\./g, "")
-    return `${local}@gmail.com`
-  }
-  return `${local}@${domain}`
-}
-
-export async function GET(
-  _req: NextRequest,
-  context: { params: { workspaceId: string } }
-) {
+export async function GET(_req: Request, context: any) {
   const { workspaceId } = context.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -42,29 +31,33 @@ export async function GET(
   return NextResponse.json(members)
 }
 
-export async function POST(
-  req: NextRequest,
-  context: { params: { workspaceId: string } }
-) {
+export async function POST(req: Request, context: any) {
   const { workspaceId } = context.params
+
   const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
-  if ("error" in authz) return NextResponse.json({ error: authz.error }, { status: authz.status })
+  if ("error" in authz) {
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
+  }
   const inviterId = authz.me.id
 
-  const body = await req.json().catch(() => ({}))
+  const body = await req.json().catch(() => ({} as any))
   const emailRaw: string = body?.email ?? ""
   const role: "ADMIN" | "MEMBER" | "VIEWER" = body?.role ?? "MEMBER"
 
-  const emailLower = emailRaw.trim().toLowerCase()
-  if (!emailLower || !["ADMIN", "MEMBER", "VIEWER"].includes(role)) {
+  const email = emailRaw.trim().toLowerCase()
+  if (!email || !["ADMIN", "MEMBER", "VIEWER"].includes(role)) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 })
   }
-  const emailNorm = canon(emailLower)
 
   if (role === "ADMIN") {
-    const adminCount = await prisma.workspaceMember.count({ where: { workspaceId, role: "ADMIN" } })
+    const adminCount = await prisma.workspaceMember.count({
+      where: { workspaceId, role: "ADMIN" },
+    })
     if (adminCount >= 2) {
-      return NextResponse.json({ error: "Maximum of 2 admins allowed." }, { status: 400 })
+      return NextResponse.json(
+        { error: "Maximum of 2 admins allowed in a workspace." },
+        { status: 400 }
+      )
     }
   }
 
@@ -74,13 +67,8 @@ export async function POST(
   })
   if (!ws) return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
 
-  const existingUser = await prisma.user.findFirst({
-    where: {
-      OR: [
-        { email: { equals: emailLower, mode: "insensitive" } },
-        { email: { equals: emailNorm, mode: "insensitive" } },
-      ],
-    },
+  const existingUser = await prisma.user.findUnique({
+    where: { email },
     select: { id: true },
   })
 
@@ -91,6 +79,7 @@ export async function POST(
   if (existingUser) {
     const existingMember = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId: existingUser.id, workspaceId } },
+      select: { id: true },
     })
     if (existingMember) {
       return NextResponse.json({ error: "User is already a member" }, { status: 409 })
@@ -98,21 +87,17 @@ export async function POST(
   }
 
   const existingPending = await prisma.workspaceInvite.findFirst({
-    where: {
-      workspaceId,
-      status: "PENDING",
-      OR: [
-        { email: { equals: emailLower, mode: "insensitive" } },
-        { email: { equals: emailNorm, mode: "insensitive" } },
-      ],
-    },
+    where: { workspaceId, email, status: "PENDING" },
+    include: { workspace: { select: { id: true, name: true, isPersonal: true } } },
   })
-  if (existingPending) return NextResponse.json(existingPending, { status: 200 })
+  if (existingPending) {
+    return NextResponse.json(existingPending, { status: 200 })
+  }
 
   const invite = await prisma.workspaceInvite.create({
     data: {
       workspaceId,
-      email: emailNorm,
+      email,
       role,
       invitedById: inviterId,
       status: "PENDING",

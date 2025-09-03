@@ -1,25 +1,24 @@
+// src/app/api/subtasks/[subtaskId]/route.ts
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-export async function PATCH(
-  req: NextRequest,
-  context: { params: { subtaskId: string } }
-) {
+export async function PATCH(req: Request, context: any) {
   try {
     const { subtaskId } = context.params
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const body = await req.json().catch(() => null)
+    const body = await req.json().catch(() => ({} as any))
     const completed: boolean | undefined = body?.completed
     if (typeof completed !== "boolean") {
       return NextResponse.json({ error: "completed must be boolean" }, { status: 400 })
     }
 
+    // access check via subtask -> task -> column -> workspace
     const sub = await prisma.subtask.findUnique({
       where: { id: subtaskId },
       select: {
@@ -39,6 +38,7 @@ export async function PATCH(
         },
       },
     })
+
     if (!sub) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const ws = sub.task.column.workspace
@@ -56,9 +56,10 @@ export async function PATCH(
       where: { id: subtaskId },
       data: { completed },
     })
+
     return NextResponse.json(updated)
   } catch (e) {
-    console.error("PATCH subtask error:", e)
+    console.error("PATCH /api/subtasks/[subtaskId] error:", e)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

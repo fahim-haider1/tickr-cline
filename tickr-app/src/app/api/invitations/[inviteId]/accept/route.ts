@@ -1,11 +1,11 @@
+// src/app/api/invitations/[inviteId]/accept/route.ts
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-// Normalize Gmail addresses (remove dots, ignore +labels)
 function canon(email: string) {
   const e = email.trim().toLowerCase()
   const [localRaw, domainRaw = ""] = e.split("@")
@@ -18,39 +18,30 @@ function canon(email: string) {
   return `${local}@${domain}`
 }
 
-export async function POST(
-  _req: NextRequest,
-  context: { params: { inviteId: string } }
-) {
+export async function POST(_req: Request, context: any) {
   try {
     const { inviteId } = context.params
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Collect all possible user emails
+    // collect all emails (raw + canonical)
     const emails = new Set<string>()
     const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
     if (dbUser?.email) {
       emails.add(dbUser.email.toLowerCase())
       emails.add(canon(dbUser.email))
     }
-
     const cu = await currentUser().catch(() => null)
     if (cu?.primaryEmailAddress?.emailAddress) {
       const e = cu.primaryEmailAddress.emailAddress
-      emails.add(e.toLowerCase())
-      emails.add(canon(e))
+      emails.add(e.toLowerCase()); emails.add(canon(e))
     }
     for (const ea of cu?.emailAddresses ?? []) {
       if (ea.emailAddress) {
-        emails.add(ea.emailAddress.toLowerCase())
-        emails.add(canon(ea.emailAddress))
+        emails.add(ea.emailAddress.toLowerCase()); emails.add(canon(ea.emailAddress))
       }
     }
-
-    if (emails.size === 0) {
-      return NextResponse.json({ error: "No email on file" }, { status: 400 })
-    }
+    if (emails.size === 0) return NextResponse.json({ error: "No email on file" }, { status: 400 })
 
     const invite = await prisma.workspaceInvite.findUnique({
       where: { id: inviteId },
@@ -65,20 +56,16 @@ export async function POST(
       return NextResponse.json({ error: "This invite is not for your email" }, { status: 403 })
     }
 
-    // Already a member? just mark accepted
-    const existingMember = await prisma.workspaceMember.findUnique({
+    // already a member?
+    const existing = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId: invite.workspaceId } },
       select: { id: true },
     })
-    if (existingMember) {
-      await prisma.workspaceInvite.update({
-        where: { id: invite.id },
-        data: { status: "ACCEPTED" },
-      })
+    if (existing) {
+      await prisma.workspaceInvite.update({ where: { id: invite.id }, data: { status: "ACCEPTED" } })
       return NextResponse.json({ success: true, workspaceId: invite.workspaceId })
     }
 
-    // Enforce ≤2 admins
     if (invite.role === "ADMIN") {
       const adminCount = await prisma.workspaceMember.count({
         where: { workspaceId: invite.workspaceId, role: "ADMIN" },
@@ -93,16 +80,9 @@ export async function POST(
 
     await prisma.$transaction([
       prisma.workspaceMember.create({
-        data: {
-          workspaceId: invite.workspaceId,
-          userId,
-          role: invite.role,
-        },
+        data: { workspaceId: invite.workspaceId, userId, role: invite.role },
       }),
-      prisma.workspaceInvite.update({
-        where: { id: invite.id },
-        data: { status: "ACCEPTED" },
-      }),
+      prisma.workspaceInvite.update({ where: { id: invite.id }, data: { status: "ACCEPTED" } }),
     ])
 
     return NextResponse.json({ success: true, workspaceId: invite.workspaceId })

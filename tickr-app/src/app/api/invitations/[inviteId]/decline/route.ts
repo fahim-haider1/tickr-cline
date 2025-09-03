@@ -1,7 +1,8 @@
+// src/app/api/invitations/[inviteId]/decline/route.ts
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
@@ -17,10 +18,7 @@ function canon(email: string) {
   return `${local}@${domain}`
 }
 
-export async function POST(
-  _req: NextRequest,
-  context: { params: { inviteId: string } }
-) {
+export async function POST(_req: Request, context: any) {
   try {
     const { inviteId } = context.params
     const { userId } = await auth()
@@ -28,27 +26,16 @@ export async function POST(
 
     const emails = new Set<string>()
     const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
-    if (dbUser?.email) {
-      emails.add(dbUser.email.toLowerCase())
-      emails.add(canon(dbUser.email))
-    }
-
+    if (dbUser?.email) { emails.add(dbUser.email.toLowerCase()); emails.add(canon(dbUser.email)) }
     const cu = await currentUser().catch(() => null)
     if (cu?.primaryEmailAddress?.emailAddress) {
       const e = cu.primaryEmailAddress.emailAddress
-      emails.add(e.toLowerCase())
-      emails.add(canon(e))
+      emails.add(e.toLowerCase()); emails.add(canon(e))
     }
     for (const ea of cu?.emailAddresses ?? []) {
-      if (ea.emailAddress) {
-        emails.add(ea.emailAddress.toLowerCase())
-        emails.add(canon(ea.emailAddress))
-      }
+      if (ea.emailAddress) { emails.add(ea.emailAddress.toLowerCase()); emails.add(canon(ea.emailAddress)) }
     }
-
-    if (emails.size === 0) {
-      return NextResponse.json({ error: "No email on file" }, { status: 400 })
-    }
+    if (emails.size === 0) return NextResponse.json({ error: "No email on file" }, { status: 400 })
 
     const invite = await prisma.workspaceInvite.findUnique({ where: { id: inviteId } })
     if (!invite || invite.status !== "PENDING") {
@@ -60,11 +47,7 @@ export async function POST(
       return NextResponse.json({ error: "This invite is not for your email" }, { status: 403 })
     }
 
-    await prisma.workspaceInvite.update({
-      where: { id: inviteId },
-      data: { status: "DECLINED" },
-    })
-
+    await prisma.workspaceInvite.update({ where: { id: inviteId }, data: { status: "DECLINED" } })
     return NextResponse.json({ success: true })
   } catch (e) {
     console.error("POST /api/invitations/[inviteId]/decline error:", e)

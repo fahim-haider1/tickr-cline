@@ -2,31 +2,25 @@
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { NextRequest, NextResponse } from "next/server"
+import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireWorkspaceAuth } from "@/lib/workspaceAuth"
 
-// PUT = change member role
-export async function PUT(
-  req: NextRequest,
-  context: { params: { workspaceId: string; memberId: string } }
-) {
+export async function PUT(req: Request, context: any) {
   const { workspaceId, memberId } = context.params
 
-  const auth = await requireWorkspaceAuth(workspaceId, "ADMIN")
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
+  if ("error" in authz) {
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
   }
 
-  const body = await req.json().catch(() => ({}))
+  const body = await req.json().catch(() => ({} as any))
   const nextRole: "ADMIN" | "MEMBER" | "VIEWER" | undefined = body?.role
   if (!nextRole || !["ADMIN", "MEMBER", "VIEWER"].includes(nextRole)) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 })
   }
 
-  const member = await prisma.workspaceMember.findUnique({
-    where: { id: memberId },
-  })
+  const member = await prisma.workspaceMember.findUnique({ where: { id: memberId } })
   if (!member || member.workspaceId !== workspaceId) {
     return NextResponse.json({ error: "Member not found" }, { status: 404 })
   }
@@ -37,7 +31,7 @@ export async function PUT(
     })
     if (adminCount >= 2) {
       return NextResponse.json(
-        { error: "Maximum of 2 admins allowed" },
+        { error: "Maximum of 2 admins allowed in a workspace." },
         { status: 400 }
       )
     }
@@ -52,16 +46,12 @@ export async function PUT(
   return NextResponse.json(updated)
 }
 
-// DELETE = remove member
-export async function DELETE(
-  _req: NextRequest,
-  context: { params: { workspaceId: string; memberId: string } }
-) {
+export async function DELETE(_req: Request, context: any) {
   const { workspaceId, memberId } = context.params
 
-  const auth = await requireWorkspaceAuth(workspaceId, "ADMIN")
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
+  if ("error" in authz) {
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
   }
 
   const member = await prisma.workspaceMember.findUnique({
@@ -73,6 +63,5 @@ export async function DELETE(
   }
 
   await prisma.workspaceMember.delete({ where: { id: memberId } })
-
   return NextResponse.json({ success: true })
 }

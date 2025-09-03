@@ -7,36 +7,22 @@ import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
 export async function GET() {
-  try {
-    const { userId } = await auth()
-    if (!userId) return NextResponse.json([], { status: 200 })
+  const { userId } = await auth()
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    const me = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    })
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+  if (!me?.email) return NextResponse.json([], { status: 200 })
 
-    if (!me?.email) return NextResponse.json([], { status: 200 })
+  const invites = await prisma.workspaceInvite.findMany({
+    where: { email: { equals: me.email.toLowerCase(), mode: "insensitive" }, status: "PENDING" },
+    select: {
+      id: true,
+      role: true,
+      createdAt: true,
+      workspace: { select: { id: true, name: true, isPersonal: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  })
 
-    const invites = await prisma.workspaceInvite.findMany({
-      where: {
-        email: { equals: me.email.toLowerCase(), mode: "insensitive" },
-        status: "PENDING",
-      },
-      select: {
-        id: true,
-        role: true,
-        createdAt: true,
-        workspace: {
-          select: { id: true, name: true, isPersonal: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    })
-
-    return NextResponse.json(invites)
-  } catch (err) {
-    console.error("GET /api/invitations failed:", err)
-    return NextResponse.json([], { status: 200 })
-  }
+  return NextResponse.json(invites)
 }

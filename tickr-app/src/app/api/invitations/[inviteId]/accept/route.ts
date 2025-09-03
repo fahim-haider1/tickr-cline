@@ -1,8 +1,7 @@
-// src/app/api/invitations/[inviteId]/accept/route.ts
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
@@ -19,21 +18,18 @@ function canon(email: string) {
   return `${local}@${domain}`
 }
 
-export async function POST(req: Request, context: any) {
+export async function POST(
+  _req: NextRequest,
+  context: { params: { inviteId: string } }
+) {
   try {
     const { inviteId } = context.params
-
     const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Collect all possible user emails (raw + canonical)
+    // Collect all possible user emails
     const emails = new Set<string>()
-    const dbUser = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { email: true },
-    })
+    const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
     if (dbUser?.email) {
       emails.add(dbUser.email.toLowerCase())
       emails.add(canon(dbUser.email))
@@ -60,23 +56,16 @@ export async function POST(req: Request, context: any) {
       where: { id: inviteId },
       include: { workspace: { select: { id: true, ownerId: true } } },
     })
-
     if (!invite || invite.status !== "PENDING") {
-      return NextResponse.json(
-        { error: "Invite not found or not pending" },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: "Invite not found or not pending" }, { status: 404 })
     }
 
     const target = invite.email.toLowerCase()
     if (![target, canon(target)].some((t) => emails.has(t))) {
-      return NextResponse.json(
-        { error: "This invite is not for your email" },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: "This invite is not for your email" }, { status: 403 })
     }
 
-    // Already a member? just mark invite accepted
+    // Already a member? just mark accepted
     const existingMember = await prisma.workspaceMember.findUnique({
       where: { userId_workspaceId: { userId, workspaceId: invite.workspaceId } },
       select: { id: true },
@@ -86,10 +75,7 @@ export async function POST(req: Request, context: any) {
         where: { id: invite.id },
         data: { status: "ACCEPTED" },
       })
-      return NextResponse.json({
-        success: true,
-        workspaceId: invite.workspaceId,
-      })
+      return NextResponse.json({ success: true, workspaceId: invite.workspaceId })
     }
 
     // Enforce ≤2 admins
@@ -119,10 +105,7 @@ export async function POST(req: Request, context: any) {
       }),
     ])
 
-    return NextResponse.json({
-      success: true,
-      workspaceId: invite.workspaceId,
-    })
+    return NextResponse.json({ success: true, workspaceId: invite.workspaceId })
   } catch (e) {
     console.error("POST /api/invitations/[inviteId]/accept error:", e)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

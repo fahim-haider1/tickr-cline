@@ -1,7 +1,3 @@
-// src/app/api/workspaces/[workspaceId]/members/route.ts
-export const runtime = "nodejs"
-export const dynamic = "force-dynamic"
-
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
@@ -37,7 +33,7 @@ export async function GET(
     where: { workspaceId },
     include: {
       user: {
-        select: { id: true, email: true, name: true, image: true },
+        select: { id: true, email: true, name: true, image: true, createdAt: true, updatedAt: true },
       },
     },
     orderBy: { joinedAt: "asc" },
@@ -52,12 +48,10 @@ export async function POST(
 ) {
   const { workspaceId } = context.params
   const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
-  if ("error" in authz) {
-    return NextResponse.json({ error: authz.error }, { status: authz.status })
-  }
+  if ("error" in authz) return NextResponse.json({ error: authz.error }, { status: authz.status })
   const inviterId = authz.me.id
 
-  const body = await req.json()
+  const body = await req.json().catch(() => ({}))
   const emailRaw: string = body?.email ?? ""
   const role: "ADMIN" | "MEMBER" | "VIEWER" = body?.role ?? "MEMBER"
 
@@ -68,16 +62,17 @@ export async function POST(
   const emailNorm = canon(emailLower)
 
   if (role === "ADMIN") {
-    const adminCount = await prisma.workspaceMember.count({
-      where: { workspaceId, role: "ADMIN" },
-    })
+    const adminCount = await prisma.workspaceMember.count({ where: { workspaceId, role: "ADMIN" } })
     if (adminCount >= 2) {
-      return NextResponse.json(
-        { error: "Maximum of 2 admins allowed." },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "Maximum of 2 admins allowed." }, { status: 400 })
     }
   }
+
+  const ws = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, ownerId: true },
+  })
+  if (!ws) return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
 
   const existingUser = await prisma.user.findFirst({
     where: {
@@ -89,12 +84,6 @@ export async function POST(
     select: { id: true },
   })
 
-  const ws = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { id: true, ownerId: true },
-  })
-  if (!ws) return NextResponse.json({ error: "Workspace not found" }, { status: 404 })
-
   if (existingUser?.id === ws.ownerId) {
     return NextResponse.json({ error: "Owner already has access" }, { status: 400 })
   }
@@ -104,7 +93,7 @@ export async function POST(
       where: { userId_workspaceId: { userId: existingUser.id, workspaceId } },
     })
     if (existingMember) {
-      return NextResponse.json({ error: "User already a member" }, { status: 409 })
+      return NextResponse.json({ error: "User is already a member" }, { status: 409 })
     }
   }
 
@@ -117,7 +106,6 @@ export async function POST(
         { email: { equals: emailNorm, mode: "insensitive" } },
       ],
     },
-    include: { workspace: { select: { id: true, name: true } } },
   })
   if (existingPending) return NextResponse.json(existingPending, { status: 200 })
 
@@ -129,7 +117,7 @@ export async function POST(
       invitedById: inviterId,
       status: "PENDING",
     },
-    include: { workspace: { select: { id: true, name: true } } },
+    include: { workspace: { select: { id: true, name: true, isPersonal: true } } },
   })
 
   return NextResponse.json(invite, { status: 201 })

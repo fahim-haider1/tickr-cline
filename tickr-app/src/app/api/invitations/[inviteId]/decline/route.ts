@@ -1,8 +1,7 @@
-// src/app/api/invitations/[inviteId]/decline/route.ts
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
@@ -18,15 +17,15 @@ function canon(email: string) {
   return `${local}@${domain}`
 }
 
-export async function POST(_req: Request, context: any) {
+export async function POST(
+  _req: NextRequest,
+  context: { params: { inviteId: string } }
+) {
   try {
     const { inviteId } = context.params
     const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-    // Collect all possible user emails
     const emails = new Set<string>()
     const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
     if (dbUser?.email) {

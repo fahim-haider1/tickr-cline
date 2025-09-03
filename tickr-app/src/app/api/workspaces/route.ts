@@ -1,19 +1,18 @@
 // src/app/api/workspaces/route.ts
-import { NextResponse } from "next/server"
-import { auth, clerkClient } from "@clerk/nextjs/server"
-import { prisma } from "@/lib/prisma"
-
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// GET: return only this user's workspaces; if none, create a Personal Workspace (with Todo/Done)
-// ALSO ensures the Prisma User row exists to avoid FK errors on first visit.
+import { NextRequest, NextResponse } from "next/server"
+import { auth, clerkClient } from "@clerk/nextjs/server"
+import { prisma } from "@/lib/prisma"
+
+// GET: return only this user's workspaces; seed a personal one if none exists
 export async function GET() {
   try {
     const { userId } = await auth()
     if (!userId) return NextResponse.json([], { status: 200 })
 
-    // --- Ensure the Prisma User row exists (first-visit race fix) ---
+    // Ensure user row exists in Prisma
     let dbUser = await prisma.user.findUnique({ where: { id: userId } })
     if (!dbUser) {
       const cu = await clerkClient.users.getUser(userId)
@@ -22,21 +21,21 @@ export async function GET() {
       dbUser = await prisma.user.create({
         data: {
           id: userId,
-          email: primary?.emailAddress ?? `${userId}@example.local`, // fallback to satisfy NOT NULL + UNIQUE
+          email: primary?.emailAddress ?? `${userId}@example.local`,
           name: `${cu?.firstName ?? ""} ${cu?.lastName ?? ""}`.trim() || null,
           image: cu?.imageUrl ?? null,
         },
       })
     }
-    // ---------------------------------------------------------------
 
-    // Existing or seed a personal workspace
+    // Get workspaces owned by user
     let workspaces = await prisma.workspace.findMany({
       where: { ownerId: userId },
       orderBy: { createdAt: "asc" },
-      include: { columns: true },  // ✅ always include columns
+      include: { columns: true },
     })
 
+    // If none, seed a "Personal Workspace"
     if (workspaces.length === 0) {
       const ws = await prisma.workspace.create({
         data: {
@@ -51,7 +50,7 @@ export async function GET() {
             ],
           },
         },
-        include: { columns: true },  // ✅ return seeded columns immediately
+        include: { columns: true },
       })
       workspaces = [ws]
     }
@@ -59,36 +58,43 @@ export async function GET() {
     return NextResponse.json(workspaces)
   } catch (err) {
     console.error("GET /api/workspaces failed:", err)
-    // Be forgiving on first-load — return empty list instead of 500 so UI doesn't crash
+    // Return [] instead of 500 so UI doesn’t break on first load
     return NextResponse.json([], { status: 200 })
   }
 }
 
-// POST: create a workspace for this user (seed Todo/Done)
-export async function POST(req: Request) {
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+// POST: create a new workspace (seed Todo/Done columns)
+export async function POST(req: NextRequest) {
+  try {
+    const { userId } = await auth()
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { name, description } = await req.json()
-  if (!name?.trim()) {
-    return NextResponse.json({ error: "Name required" }, { status: 400 })
-  }
+    const body = await req.json().catch(() => ({}))
+    const { name, description } = body
 
-  const ws = await prisma.workspace.create({
-    data: {
-      name: name.trim(),
-      description: description ?? null,
-      ownerId: userId,
-      members: { create: { userId, role: "ADMIN" } },
-      columns: {
-        create: [
-          { name: "Todo", order: 0 },
-          { name: "Done", order: 1 },
-        ],
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "Name required" }, { status: 400 })
+    }
+
+    const ws = await prisma.workspace.create({
+      data: {
+        name: name.trim(),
+        description: description ?? null,
+        ownerId: userId,
+        members: { create: { userId, role: "ADMIN" } },
+        columns: {
+          create: [
+            { name: "Todo", order: 0 },
+            { name: "Done", order: 1 },
+          ],
+        },
       },
-    },
-    include: { columns: true },  // ✅ also include seeded columns here
-  })
+      include: { columns: true },
+    })
 
-  return NextResponse.json(ws, { status: 201 })
+    return NextResponse.json(ws, { status: 201 })
+  } catch (err) {
+    console.error("POST /api/workspaces failed:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }

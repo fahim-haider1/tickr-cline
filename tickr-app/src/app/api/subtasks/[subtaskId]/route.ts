@@ -1,4 +1,3 @@
-// src/app/api/subtasks/[subtaskId]/route.ts
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
@@ -8,10 +7,10 @@ import { prisma } from "@/lib/prisma"
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { subtaskId: string } }
+  context: { params: { subtaskId: string } }
 ) {
   try {
-    const { subtaskId } = params
+    const { subtaskId } = context.params
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -40,7 +39,6 @@ export async function PATCH(
         },
       },
     })
-
     if (!sub) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const ws = sub.task.column.workspace
@@ -58,7 +56,6 @@ export async function PATCH(
       where: { id: subtaskId },
       data: { completed },
     })
-
     return NextResponse.json(updated)
   } catch (e) {
     console.error("PATCH subtask error:", e)

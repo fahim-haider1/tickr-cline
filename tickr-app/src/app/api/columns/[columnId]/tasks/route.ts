@@ -6,10 +6,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-type Params = { columnId: string }
-
-// POST: create a task in a column
-export async function POST(req: NextRequest, context: { params: Params }) {
+export async function POST(req: NextRequest, context: any) {
   try {
     const { columnId } = context.params
     const { userId } = await auth()
@@ -24,7 +21,6 @@ export async function POST(req: NextRequest, context: { params: Params }) {
       return NextResponse.json({ error: "Title required" }, { status: 400 })
     }
 
-    // Count tasks in the column for `order`
     const count = await prisma.task.count({ where: { columnId } })
 
     const task = await prisma.task.create({
@@ -35,7 +31,7 @@ export async function POST(req: NextRequest, context: { params: Params }) {
         dueDate: dueDate ? new Date(dueDate) : null,
         columnId,
         assigneeId: assigneeId ?? null,
-        order: count, // ensure required order field
+        order: count,
         subtasks: {
           create: (subtasks ?? []).map((s: any, idx: number) => ({
             title: s.title,

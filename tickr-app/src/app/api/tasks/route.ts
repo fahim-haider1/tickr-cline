@@ -1,61 +1,101 @@
-// Create task (ADMIN & MEMBER only)
-// Payload: { columnId, title, description?, priority, assigneeId?, dueDate?, subtasks?: [{title}] }
+// src/app/api/tasks/route.ts
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
-import { requireWorkspaceAuth, checkWorkspacePermission } from "@/lib/workspaceAuth";
+
+type CreateTaskBody = {
+  columnId: string;
+  title: string;
+  priority?: "LOW" | "MEDIUM" | "HIGH";
+  dueDate?: string | null;
+  assigneeId?: string | null;
+  subtasks?: string[]; // list of subtask titles
+};
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const { columnId, title, description, priority, assigneeId, dueDate, subtasks } = body ?? {};
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-  if (!columnId || !title?.toString().trim()) {
-    return NextResponse.json({ error: "columnId and title are required" }, { status: 400 });
-  }
+    const body = (await req.json().catch(() => ({}))) as Partial<CreateTaskBody>;
+    const columnId = String(body.columnId || "");
+    const rawTitle = typeof body.title === "string" ? body.title : "";
+    const title = rawTitle.trim();
+    const dueDate = body.dueDate ? new Date(body.dueDate) : null;
+    const assigneeId = body.assigneeId || null;
+    const subtasks = Array.isArray(body.subtasks) ? body.subtasks : [];
 
-  // Resolve workspace from column
-  const column = await prisma.column.findUnique({
-    where: { id: columnId },
-    include: { workspace: { select: { id: true } }, tasks: { select: { order: true } } },
-  });
-  if (!column) return NextResponse.json({ error: "Column not found" }, { status: 404 });
+    if (!columnId || !title) {
+      return NextResponse.json({ error: "columnId and title are required" }, { status: 400 });
+    }
 
-  // Permission: create_tasks => ADMIN or MEMBER
-  const auth = await requireWorkspaceAuth(column.workspaceId);
-  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const perm = await checkWorkspacePermission(column.workspaceId, "create_tasks");
-  if (!("allowed" in perm) || !perm.allowed) {
-    return NextResponse.json({ error: perm.error ?? "Not allowed" }, { status: 403 });
-  }
-
-  const nextOrder =
-    column.tasks.length === 0 ? 0 : Math.max(...column.tasks.map((t) => t.order)) + 1;
-
-  const created = await prisma.task.create({
-    data: {
-      columnId,
-      title: title.toString().trim(),
-      description: description?.toString() ?? null,
-      priority: ["LOW", "MEDIUM", "HIGH"].includes(priority) ? priority : "MEDIUM",
-      order: nextOrder,
-      dueDate: dueDate ? new Date(dueDate) : null,
-      assigneeId: assigneeId || null,
-      subtasks: {
-        create: Array.isArray(subtasks)
-          ? subtasks
-              .map((s: any, i: number) => ({
-                title: (s?.title ?? "").toString().trim(),
-                order: i,
-              }))
-              .filter((s) => s.title.length > 0)
-          : [],
+    // Auth: user must belong to the column's workspace (VIEWERs cannot create)
+    const column = await prisma.column.findUnique({
+      where: { id: columnId },
+      select: {
+        id: true,
+        workspace: {
+          select: {
+            ownerId: true,
+            members: { select: { userId: true, role: true } },
+          },
+        },
       },
-    },
-    include: {
-      subtasks: true,
-      assignee: { select: { id: true, name: true, email: true } },
-    },
-  });
+    });
+    if (!column) {
+      return NextResponse.json({ error: "Column not found" }, { status: 404 });
+    }
 
-  return NextResponse.json(created, { status: 201 });
+    const ws = column.workspace;
+    const me =
+      ws.ownerId === userId
+        ? { role: "ADMIN" as const }
+        : ws.members.find((m) => m.userId === userId) || null;
+
+    if (!me) {
+      return NextResponse.json({ error: "No access" }, { status: 403 });
+    }
+    if (me.role === "VIEWER") {
+      return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+    }
+
+    // Compute next order inside this column
+    const nextOrder = await prisma.task.count({ where: { columnId } });
+
+    const allowedPriorities = new Set(["LOW", "MEDIUM", "HIGH"]);
+    const priority = allowedPriorities.has(String(body.priority))
+      ? (body.priority as "LOW" | "MEDIUM" | "HIGH")
+      : "MEDIUM";
+
+    const created = await prisma.task.create({
+      data: {
+        columnId,
+        title,
+        priority,
+        order: nextOrder,
+        dueDate,
+        assigneeId,
+        // do NOT write non-existent fields (e.g., description/subtitle)
+        subtasks:
+          subtasks.length > 0
+            ? {
+                create: subtasks
+                  .filter((s) => typeof s === "string" && s.trim())
+                  .map((t, i) => ({ title: t.trim(), order: i })),
+              }
+            : undefined,
+      },
+      include: { subtasks: true },
+    });
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (e) {
+    console.error("POST /api/tasks error:", e);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }

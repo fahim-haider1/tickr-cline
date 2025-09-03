@@ -6,6 +6,7 @@ import { NextResponse } from "next/server"
 import { auth, currentUser } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
+// Normalize Gmail addresses (remove dots, ignore +labels)
 function canon(email: string) {
   const e = email.trim().toLowerCase()
   const [localRaw, domainRaw = ""] = e.split("@")
@@ -20,82 +21,113 @@ function canon(email: string) {
 
 export async function POST(
   _req: Request,
-  { params }: { params: { inviteId: string } }
+  context: { params: { inviteId: string } }
 ) {
-  const { inviteId } = params
-  const { userId } = await auth()
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  try {
+    const { inviteId } = context.params
 
-  const emails = new Set<string>()
-  const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
-  if (dbUser?.email) {
-    emails.add(dbUser.email.toLowerCase())
-    emails.add(canon(dbUser.email))
-  }
-  const cu = await currentUser().catch(() => null)
-  if (cu?.primaryEmailAddress?.emailAddress) {
-    const e = cu.primaryEmailAddress.emailAddress
-    emails.add(e.toLowerCase())
-    emails.add(canon(e))
-  }
-  for (const ea of cu?.emailAddresses ?? []) {
-    if (ea.emailAddress) {
-      emails.add(ea.emailAddress.toLowerCase())
-      emails.add(canon(ea.emailAddress))
+    const { userId } = await auth()
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
-  }
-  if (emails.size === 0) return NextResponse.json({ error: "No email on file" }, { status: 400 })
 
-  const invite = await prisma.workspaceInvite.findUnique({
-    where: { id: inviteId },
-    include: { workspace: { select: { id: true, ownerId: true } } },
-  })
-  if (!invite || invite.status !== "PENDING") {
-    return NextResponse.json({ error: "Invite not found or not pending" }, { status: 404 })
-  }
-
-  const target = invite.email.toLowerCase()
-  if (![target, canon(target)].some((t) => emails.has(t))) {
-    return NextResponse.json({ error: "This invite is not for your email" }, { status: 403 })
-  }
-
-  const existingMember = await prisma.workspaceMember.findUnique({
-    where: { userId_workspaceId: { userId, workspaceId: invite.workspaceId } },
-    select: { id: true },
-  })
-  if (existingMember) {
-    await prisma.workspaceInvite.update({
-      where: { id: invite.id },
-      data: { status: "ACCEPTED" },
+    // Collect all possible user emails (raw + canonical)
+    const emails = new Set<string>()
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
     })
-    return NextResponse.json({ success: true, workspaceId: invite.workspaceId })
-  }
+    if (dbUser?.email) {
+      emails.add(dbUser.email.toLowerCase())
+      emails.add(canon(dbUser.email))
+    }
 
-  if (invite.role === "ADMIN") {
-    const adminCount = await prisma.workspaceMember.count({
-      where: { workspaceId: invite.workspaceId, role: "ADMIN" },
+    const cu = await currentUser().catch(() => null)
+    if (cu?.primaryEmailAddress?.emailAddress) {
+      const e = cu.primaryEmailAddress.emailAddress
+      emails.add(e.toLowerCase())
+      emails.add(canon(e))
+    }
+    for (const ea of cu?.emailAddresses ?? []) {
+      if (ea.emailAddress) {
+        emails.add(ea.emailAddress.toLowerCase())
+        emails.add(canon(ea.emailAddress))
+      }
+    }
+
+    if (emails.size === 0) {
+      return NextResponse.json({ error: "No email on file" }, { status: 400 })
+    }
+
+    const invite = await prisma.workspaceInvite.findUnique({
+      where: { id: inviteId },
+      include: { workspace: { select: { id: true, ownerId: true } } },
     })
-    if (adminCount >= 2) {
+
+    if (!invite || invite.status !== "PENDING") {
       return NextResponse.json(
-        { error: "Workspace already has the maximum of 2 admins" },
-        { status: 400 }
+        { error: "Invite not found or not pending" },
+        { status: 404 }
       )
     }
-  }
 
-  await prisma.$transaction([
-    prisma.workspaceMember.create({
-      data: {
+    const target = invite.email.toLowerCase()
+    if (![target, canon(target)].some((t) => emails.has(t))) {
+      return NextResponse.json(
+        { error: "This invite is not for your email" },
+        { status: 403 }
+      )
+    }
+
+    // Already a member? just mark invite accepted
+    const existingMember = await prisma.workspaceMember.findUnique({
+      where: { userId_workspaceId: { userId, workspaceId: invite.workspaceId } },
+      select: { id: true },
+    })
+    if (existingMember) {
+      await prisma.workspaceInvite.update({
+        where: { id: invite.id },
+        data: { status: "ACCEPTED" },
+      })
+      return NextResponse.json({
+        success: true,
         workspaceId: invite.workspaceId,
-        userId,
-        role: invite.role,
-      },
-    }),
-    prisma.workspaceInvite.update({
-      where: { id: invite.id },
-      data: { status: "ACCEPTED" },
-    }),
-  ])
+      })
+    }
 
-  return NextResponse.json({ success: true, workspaceId: invite.workspaceId })
+    // Enforce ≤2 admins
+    if (invite.role === "ADMIN") {
+      const adminCount = await prisma.workspaceMember.count({
+        where: { workspaceId: invite.workspaceId, role: "ADMIN" },
+      })
+      if (adminCount >= 2) {
+        return NextResponse.json(
+          { error: "Workspace already has the maximum of 2 admins" },
+          { status: 400 }
+        )
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.workspaceMember.create({
+        data: {
+          workspaceId: invite.workspaceId,
+          userId,
+          role: invite.role,
+        },
+      }),
+      prisma.workspaceInvite.update({
+        where: { id: invite.id },
+        data: { status: "ACCEPTED" },
+      }),
+    ])
+
+    return NextResponse.json({
+      success: true,
+      workspaceId: invite.workspaceId,
+    })
+  } catch (e) {
+    console.error("POST /api/invitations/[inviteId]/accept error:", e)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
 }

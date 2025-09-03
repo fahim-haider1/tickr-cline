@@ -6,25 +6,21 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-// PATCH /api/subtasks/:subtaskId  body: { completed: boolean }
-export async function PATCH(req: NextRequest, context: any) {
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { subtaskId: string } }
+) {
   try {
-    const { subtaskId } = context.params
+    const { subtaskId } = params
     const { userId } = await auth()
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
     const body = await req.json().catch(() => null)
     const completed: boolean | undefined = body?.completed
     if (typeof completed !== "boolean") {
-      return NextResponse.json(
-        { error: "completed must be boolean" },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: "completed must be boolean" }, { status: 400 })
     }
 
-    // Access check: subtask -> task -> column -> workspace
     const sub = await prisma.subtask.findUnique({
       where: { id: subtaskId },
       select: {
@@ -45,9 +41,7 @@ export async function PATCH(req: NextRequest, context: any) {
       },
     })
 
-    if (!sub) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 })
-    }
+    if (!sub) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
     const ws = sub.task.column.workspace
     const me =
@@ -55,15 +49,9 @@ export async function PATCH(req: NextRequest, context: any) {
         ? { role: "ADMIN" as const }
         : ws.members.find((m) => m.userId === userId) || null
 
-    if (!me) {
-      return NextResponse.json({ error: "No access" }, { status: 403 })
-    }
-
+    if (!me) return NextResponse.json({ error: "No access" }, { status: 403 })
     if (me.role === "VIEWER") {
-      return NextResponse.json(
-        { error: "Insufficient permissions" },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
     }
 
     const updated = await prisma.subtask.update({
@@ -73,10 +61,7 @@ export async function PATCH(req: NextRequest, context: any) {
 
     return NextResponse.json(updated)
   } catch (e) {
-    console.error("PATCH /api/subtasks/[subtaskId] error:", e)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    console.error("PATCH subtask error:", e)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

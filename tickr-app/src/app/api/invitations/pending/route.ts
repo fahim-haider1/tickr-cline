@@ -3,24 +3,36 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
-    const user = await currentUser();
-    if (!user) return NextResponse.json([], { status: 200 });
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json([], { status: 200 });
 
-    const email =
-      user.primaryEmailAddress?.emailAddress?.toLowerCase() ||
-      user.emailAddresses?.[0]?.emailAddress?.toLowerCase();
+    // Prefer DB email (if you sync users), fallback to Clerk
+    let email: string | null = null;
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    email = dbUser?.email?.toLowerCase() ?? null;
+
+    if (!email) {
+      const cu = await currentUser().catch(() => null);
+      email =
+        (cu?.primaryEmailAddress?.emailAddress ||
+          cu?.emailAddresses?.[0]?.emailAddress ||
+          null)?.toLowerCase() ?? null;
+    }
 
     if (!email) return NextResponse.json([], { status: 200 });
 
     const invites = await prisma.workspaceInvite.findMany({
       where: {
         status: "PENDING",
-        email: { equals: email, mode: "insensitive" },
+        email: { equals: email, mode: "insensitive" }, // robust matching
       },
       include: {
         workspace: { select: { id: true, name: true } },
@@ -28,6 +40,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
     });
 
+    // return compact shape used by PrimarySidebar / Kanban sidebar
     return NextResponse.json(
       invites.map((i) => ({
         id: i.id,

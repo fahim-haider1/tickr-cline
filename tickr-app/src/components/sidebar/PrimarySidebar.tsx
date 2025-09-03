@@ -1,3 +1,4 @@
+// src/components/sidebar/PrimarySidebar.tsx
 "use client"
 
 import { useEffect, useState, useCallback } from "react"

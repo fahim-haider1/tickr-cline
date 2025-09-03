@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
+// Create a new task in a column
 export async function POST(
   req: NextRequest,
   context: { params: { columnId: string } }
@@ -25,7 +26,7 @@ export async function POST(
       return NextResponse.json({ error: "Title required" }, { status: 400 })
     }
 
-    // Find last task in column to set order
+    // Find the last task to set correct order
     const lastTask = await prisma.task.findFirst({
       where: { columnId },
       orderBy: { order: "desc" },

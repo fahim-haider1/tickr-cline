@@ -8,7 +8,7 @@ datasource db {
 }
 
 model User {
-  id        String   @id // Clerk user ID
+  id        String   @id
   email     String   @unique
   name      String?
   image     String?
@@ -18,9 +18,7 @@ model User {
   ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
   workspaceMemberships WorkspaceMember[]
   assignedTasks        Task[]            @relation("TaskAssignee")
-
-  // back-relation for WorkspaceInvite.invitedBy
-  invitesSent WorkspaceInvite[] @relation("InvitesSent")
+  invitesSent          WorkspaceInvite[] @relation("InvitesSent")
 
   @@map("users")
 }
@@ -37,8 +35,6 @@ model Workspace {
   owner   User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members WorkspaceMember[]
   columns Column[]
-
-  // back-relation for WorkspaceInvite.workspace
   invites WorkspaceInvite[]
 
   @@map("workspaces")
@@ -81,8 +77,8 @@ model Column {
 model Task {
   id          String       @id @default(cuid())
   title       String
-  description String? // short subtitle
-  details     String? // long description
+  subtitle    String?      // short subtitle (was description before)
+  details     String?      // long description
   priority    TaskPriority @default(MEDIUM)
   order       Int
   dueDate     DateTime?
@@ -128,15 +124,15 @@ enum InviteStatus {
 model WorkspaceInvite {
   id          String        @id @default(cuid())
   workspaceId String
-  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   email       String
   role        WorkspaceRole
   status      InviteStatus  @default(PENDING)
   invitedById String?
-  invitedBy   User?         @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: SetNull)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  // one active invite per (workspace, email) per status
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy  User?     @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: SetNull)
+
   @@unique([workspaceId, email, status], map: "unique_active_invite_per_status")
 }

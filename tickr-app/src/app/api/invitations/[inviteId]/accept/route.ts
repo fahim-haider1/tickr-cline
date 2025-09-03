@@ -19,10 +19,7 @@ function canon(email: string) {
   return `${local}@${domain}`
 }
 
-export async function POST(
-  _req: Request,
-  context: { params: { inviteId: string } }
-) {
+export async function POST(req: Request, context: any) {
   try {
     const { inviteId } = context.params
 

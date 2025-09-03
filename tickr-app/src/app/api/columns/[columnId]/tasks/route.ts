@@ -1,72 +1,72 @@
 // src/app/api/columns/[columnId]/tasks/route.ts
-import { NextResponse } from "next/server"
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
+import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-// GET /api/columns/:columnId/tasks → list all tasks in the column
-export async function GET(
-  _req: Request,
-  ctx: { params: Promise<{ columnId: string }> }
-) {
-  const { columnId } = await ctx.params
-  const { userId } = await auth()
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
-  try {
-    const tasks = await prisma.task.findMany({
-      where: { columnId },
-      include: {
-        subtasks: true, // include subtasks if you modeled them
-        assignee: { select: { id: true, name: true, email: true } }, // if you linked to user
-      },
-      orderBy: { createdAt: "asc" },
-    })
-    return NextResponse.json(tasks)
-  } catch (e) {
-    console.error("GET /tasks error:", e)
-    return NextResponse.json({ error: "Failed to load tasks" }, { status: 500 })
-  }
-}
-
-// POST /api/columns/:columnId/tasks → create a new task in this column
 export async function POST(
-  req: Request,
-  ctx: { params: Promise<{ columnId: string }> }
+  req: NextRequest,
+  { params }: { params: { columnId: string } }
 ) {
-  const { columnId } = await ctx.params
-  const { userId } = await auth()
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
-
   try {
-    const body = await req.json()
-    const { title, subtitle, priority, dueDate, assigneeId, subtasks = [] } = body
+    const { columnId } = params
+    const { userId } = await auth()
 
-    if (!title) {
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await req.json().catch(() => ({}))
+    const {
+      title,
+      subtitle,   // 👈 incoming field, will map to description
+      details,
+      priority,
+      dueDate,
+      assigneeId,
+      subtasks,
+    } = body
+
+    if (!title?.trim()) {
       return NextResponse.json({ error: "Title is required" }, { status: 400 })
     }
 
+    // 👇 Calculate next "order" for this column
+    const maxOrder = await prisma.task.aggregate({
+      where: { columnId },
+      _max: { order: true },
+    })
+    const nextOrder = (maxOrder._max.order ?? 0) + 1
+
     const task = await prisma.task.create({
       data: {
-        title,
-        subtitle,
-        priority,
+        title: title.trim(),
+        description: subtitle || null, // map subtitle → description
+        details: details || null,
+        priority: priority || "MEDIUM",
         dueDate: dueDate ? new Date(dueDate) : null,
+        order: nextOrder,
         columnId,
         assigneeId: assigneeId || null,
         subtasks: {
-          create: subtasks.map((st: { title: string }) => ({ title: st.title })),
+          create:
+            subtasks?.map((st: any, idx: number) => ({
+              title: st,
+              order: idx,
+            })) || [],
         },
       },
-      include: { subtasks: true },
+      include: {
+        subtasks: true,
+        assignee: { select: { id: true, name: true, email: true, image: true } },
+      },
     })
 
     return NextResponse.json(task, { status: 201 })
-  } catch (e) {
-    console.error("POST /tasks error:", e)
-    return NextResponse.json({ error: "Failed to create task" }, { status: 500 })
+  } catch (err) {
+    console.error("POST /api/columns/[columnId]/tasks error:", err)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

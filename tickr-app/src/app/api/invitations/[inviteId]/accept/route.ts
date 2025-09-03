@@ -8,23 +8,43 @@ import { prisma } from "@/lib/prisma";
 
 type Ctx = { params: Promise<{ inviteId: string }> };
 
+function canon(email: string) {
+  const e = email.trim().toLowerCase();
+  const [localRaw, domainRaw = ""] = e.split("@");
+  const domain = domainRaw.toLowerCase();
+  let local = localRaw.toLowerCase();
+  if (domain === "gmail.com" || domain === "googlemail.com") {
+    local = local.split("+")[0].replace(/\./g, "");
+    return `${local}@gmail.com`;
+  }
+  return `${local}@${domain}`;
+}
+
 export async function POST(_req: Request, ctx: Ctx) {
   const { inviteId } = await ctx.params;
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Resolve user's email (to verify recipient)
-  let email: string | null = null;
+  // Collect all user emails (raw + canonical)
+  const emails = new Set<string>();
   const dbUser = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
-  email = dbUser?.email?.toLowerCase() ?? null;
-  if (!email) {
-    const cu = await currentUser().catch(() => null);
-    email =
-      (cu?.primaryEmailAddress?.emailAddress ||
-        cu?.emailAddresses?.[0]?.emailAddress ||
-        null)?.toLowerCase() ?? null;
+  if (dbUser?.email) {
+    emails.add(dbUser.email.toLowerCase());
+    emails.add(canon(dbUser.email));
   }
-  if (!email) return NextResponse.json({ error: "No email on file" }, { status: 400 });
+  const cu = await currentUser().catch(() => null);
+  if (cu?.primaryEmailAddress?.emailAddress) {
+    const e = cu.primaryEmailAddress.emailAddress;
+    emails.add(e.toLowerCase());
+    emails.add(canon(e));
+  }
+  for (const ea of cu?.emailAddresses ?? []) {
+    if (ea.emailAddress) {
+      emails.add(ea.emailAddress.toLowerCase());
+      emails.add(canon(ea.emailAddress));
+    }
+  }
+  if (emails.size === 0) return NextResponse.json({ error: "No email on file" }, { status: 400 });
 
   const invite = await prisma.workspaceInvite.findUnique({
     where: { id: inviteId },
@@ -33,11 +53,12 @@ export async function POST(_req: Request, ctx: Ctx) {
   if (!invite || invite.status !== "PENDING")
     return NextResponse.json({ error: "Invite not found or not pending" }, { status: 404 });
 
-  if (invite.email.toLowerCase() !== email) {
+  const target = invite.email.toLowerCase();
+  if (![target, canon(target)].some((t) => emails.has(t))) {
     return NextResponse.json({ error: "This invite is not for your email" }, { status: 403 });
   }
 
-  // Already a member? Just mark as accepted.
+  // Already a member? Just mark accepted
   const existingMember = await prisma.workspaceMember.findUnique({
     where: { userId_workspaceId: { userId, workspaceId: invite.workspaceId } },
     select: { id: true },
@@ -50,7 +71,7 @@ export async function POST(_req: Request, ctx: Ctx) {
     return NextResponse.json({ success: true, workspaceId: invite.workspaceId });
   }
 
-  // Enforce ≤2 admins when accepting ADMIN invite
+  // Enforce ≤2 admins
   if (invite.role === "ADMIN") {
     const adminCount = await prisma.workspaceMember.count({
       where: { workspaceId: invite.workspaceId, role: "ADMIN" },

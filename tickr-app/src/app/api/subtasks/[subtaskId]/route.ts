@@ -26,7 +26,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { subtaskId:
             column: {
               select: {
                 workspace: {
-                  select: { ownerId: true, members: { select: { userId: true } } },
+                  select: {
+                    ownerId: true,
+                    members: { select: { userId: true, role: true } },
+                  },
                 },
               },
             },
@@ -37,8 +40,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { subtaskId:
     if (!sub) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     const ws = sub.task.column.workspace;
-    const isMember = ws.ownerId === userId || ws.members.some(m => m.userId === userId);
-    if (!isMember) return NextResponse.json({ error: "No access" }, { status: 403 });
+    const me =
+      ws.ownerId === userId
+        ? { role: "ADMIN" as const }
+        : ws.members.find((m) => m.userId === userId) || null;
+    if (!me) return NextResponse.json({ error: "No access" }, { status: 403 });
+
+    // 🔒 Viewers cannot modify
+    if (me.role === "VIEWER") {
+      return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
+    }
 
     const updated = await prisma.subtask.update({
       where: { id: params.subtaskId },

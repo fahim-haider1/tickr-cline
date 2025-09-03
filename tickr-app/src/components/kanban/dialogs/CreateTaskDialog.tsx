@@ -2,12 +2,25 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { AssignableUser } from "@/types/kanban";
 
 type Props = {
@@ -18,9 +31,17 @@ type Props = {
   onCreate: (payload: any) => Promise<void>;
 };
 
-export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, assignableMembers, onCreate }: Props) {
+export default function CreateTaskDialog({
+  open,
+  onOpenChange,
+  targetColumnId,
+  assignableMembers,
+  onCreate,
+}: Props) {
   const [taskTitle, setTaskTitle] = useState("");
-  const [taskPriority, setTaskPriority] = useState<"LOW" | "MEDIUM" | "HIGH">("MEDIUM");
+  const [taskPriority, setTaskPriority] = useState<
+    "LOW" | "MEDIUM" | "HIGH"
+  >("MEDIUM");
   const [taskSubtitle, setTaskSubtitle] = useState("");
   const [assigneeId, setAssigneeId] = useState<string>("__unassigned__");
   const [dueDate, setDueDate] = useState<string>("");
@@ -54,7 +75,8 @@ export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, a
         priority: taskPriority,
         subtasks: subtasksPayload,
       };
-      if (assigneeId && assigneeId !== "__unassigned__") payload.assigneeId = assigneeId;
+      if (assigneeId && assigneeId !== "__unassigned__")
+        payload.assigneeId = assigneeId;
       if (dueDate) payload.dueDate = dueDate;
 
       await onCreate(payload);
@@ -66,22 +88,38 @@ export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, a
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Create Task</DialogTitle>
-          <DialogDescription className="sr-only">Fill in optional details like priority, assignee, due date and subtasks.</DialogDescription>
+          <DialogDescription className="sr-only">
+            Fill in optional details like priority, assignee, due date and
+            subtasks.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        {/* Scrollable form section */}
+        <div className="flex-1 overflow-y-auto pr-2 space-y-4 scrollbar-thin scrollbar-thumb-muted-foreground/30 scrollbar-track-transparent hover:scrollbar-thumb-muted-foreground/50">
+          {/* Title */}
           <div className="space-y-2">
             <Label htmlFor="task-title">Title *</Label>
-            <Input id="task-title" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="Task title" />
+            <Input
+              id="task-title"
+              value={taskTitle}
+              onChange={(e) => setTaskTitle(e.target.value)}
+              placeholder="Task title"
+            />
           </div>
 
+          {/* Priority + Due date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Priority</Label>
-              <Select value={taskPriority} onValueChange={(v: "LOW" | "MEDIUM" | "HIGH") => setTaskPriority(v)}>
+              <Select
+                value={taskPriority}
+                onValueChange={(v: "LOW" | "MEDIUM" | "HIGH") =>
+                  setTaskPriority(v)
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
@@ -95,15 +133,29 @@ export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, a
 
             <div className="space-y-2">
               <Label htmlFor="task-due">Due date</Label>
-              <Input id="task-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <Input
+                id="task-due"
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
             </div>
           </div>
 
+          {/* Subtitle */}
           <div className="space-y-2">
             <Label htmlFor="task-subtitle">Subtitle</Label>
-            <Textarea id="task-subtitle" rows={2} value={taskSubtitle} onChange={(e) => setTaskSubtitle(e.target.value)} placeholder="Short subtitle (Optional)" />
+            <Textarea
+              id="task-subtitle"
+              rows={2}
+              value={taskSubtitle}
+              onChange={(e) => setTaskSubtitle(e.target.value)}
+              placeholder="Short subtitle (Optional)"
+              className="resize-y"
+            />
           </div>
 
+          {/* Assignee */}
           <div className="space-y-2">
             <Label>Assignee</Label>
             <Select value={assigneeId} onValueChange={(v) => setAssigneeId(v)}>
@@ -121,16 +173,26 @@ export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, a
             </Select>
           </div>
 
+          {/* Subtasks */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Subtasks</Label>
-              <Button type="button" variant="outline" size="sm" onClick={() => setSubtaskInputs((prev) => [...prev, ""])}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSubtaskInputs((prev) => [...prev, ""])}
+              >
                 + Add subtask
               </Button>
             </div>
 
             <div className="space-y-2">
-              {subtaskInputs.length === 0 && <p className="text-xs text-muted-foreground">No subtasks yet.</p>}
+              {subtaskInputs.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No subtasks yet.
+                </p>
+              )}
               {subtaskInputs.map((val, idx) => (
                 <div key={idx} className="flex items-center gap-2">
                   <Input
@@ -138,14 +200,20 @@ export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, a
                     placeholder={`Subtask #${idx + 1}`}
                     onChange={(e) => {
                       const v = e.target.value;
-                      setSubtaskInputs((prev) => prev.map((p, i) => (i === idx ? v : p)));
+                      setSubtaskInputs((prev) =>
+                        prev.map((p, i) => (i === idx ? v : p))
+                      );
                     }}
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() => setSubtaskInputs((prev) => prev.filter((_, i) => i !== idx))}
+                    onClick={() =>
+                      setSubtaskInputs((prev) =>
+                        prev.filter((_, i) => i !== idx)
+                      )
+                    }
                     aria-label="Remove subtask"
                   >
                     ×
@@ -156,6 +224,7 @@ export default function CreateTaskDialog({ open, onOpenChange, targetColumnId, a
           </div>
         </div>
 
+        {/* Footer buttons */}
         <DialogFooter className="mt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel

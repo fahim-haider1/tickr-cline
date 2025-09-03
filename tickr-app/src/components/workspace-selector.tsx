@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { ChevronDown, Plus, Settings, Users } from 'lucide-react';
+import { ChevronDown, Plus, Settings, Users, Inbox, Check, X } from 'lucide-react';
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog';
 import {
   DropdownMenu,
@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 
 interface WorkspaceMember {
   id: string
@@ -41,17 +42,27 @@ interface Workspace {
   columns: any[];
 }
 
+type PendingInvite = {
+  id: string;
+  role: 'ADMIN' | 'MEMBER' | 'VIEWER';
+  createdAt: string;
+  workspace: { id: string; name: string };
+};
+
 interface WorkspaceSelectorProps {
   onWorkspaceSelect: (workspace: Workspace) => void;
   selectedWorkspaceId?: string;
 }
 
 export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: WorkspaceSelectorProps) {
-  // hooks must be unconditional and at the top
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // stable fetch function
+  // NEW: invites state
+  const [invites, setInvites] = useState<PendingInvite[]>([]);
+  const [invitesOpen, setInvitesOpen] = useState(false);
+  const hasInvites = invites.length > 0;
+
   const fetchWorkspaces = useCallback(async () => {
     try {
       setLoading(true);
@@ -72,14 +83,58 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
     }
   }, [onWorkspaceSelect, selectedWorkspaceId]);
 
+  // NEW: fetch pending invites
+  const fetchInvites = useCallback(async () => {
+    try {
+      const res = await fetch('/api/invitations/pending', { cache: 'no-store' });
+      if (res.ok) {
+        const data: PendingInvite[] = await res.json();
+        setInvites(data);
+      }
+    } catch (e) {
+      console.error('Error fetching invitations', e);
+    }
+  }, []);
+
   useEffect(() => {
     fetchWorkspaces();
-  }, [fetchWorkspaces]);
+    fetchInvites();
+  }, [fetchWorkspaces, fetchInvites]);
 
-  // fixed: spread prev correctly
   const handleWorkspaceCreated = (newWorkspace: Workspace) => {
     setWorkspaces(prev => [...prev, newWorkspace]);
     onWorkspaceSelect(newWorkspace);
+  };
+
+  // NEW: accept / decline handlers
+  const acceptInvite = async (id: string) => {
+    try {
+      const res = await fetch(`/api/invitations/${id}/accept`, { method: 'POST' });
+      if (res.ok) {
+        setInvites(prev => prev.filter(i => i.id !== id));
+        // Refresh workspaces so the newly-joined one appears
+        await fetchWorkspaces();
+      } else {
+        const j = await res.json().catch(() => ({}));
+        console.error('Accept failed', j);
+      }
+    } catch (e) {
+      console.error('Accept error', e);
+    }
+  };
+
+  const declineInvite = async (id: string) => {
+    try {
+      const res = await fetch(`/api/invitations/${id}/decline`, { method: 'POST' });
+      if (res.ok) {
+        setInvites(prev => prev.filter(i => i.id !== id));
+      } else {
+        const j = await res.json().catch(() => ({}));
+        console.error('Decline failed', j);
+      }
+    } catch (e) {
+      console.error('Decline error', e);
+    }
   };
 
   const selectedWorkspace = workspaces.find(w => w.id === selectedWorkspaceId);
@@ -90,6 +145,7 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
 
   return (
     <div className="space-y-4">
+      {/* Workspace picker */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" className="w-full justify-between">
@@ -113,9 +169,59 @@ export function WorkspaceSelector({ onWorkspaceSelect, selectedWorkspaceId }: Wo
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
+          {/* "Add New Workspace" is provided via this dialog, unchanged */}
           <CreateWorkspaceDialog onWorkspaceCreated={handleWorkspaceCreated} />
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* NEW: Invitations button under the selector */}
+      <Dialog open={invitesOpen} onOpenChange={setInvitesOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline" className="w-full justify-start" size="sm">
+            <div className="relative flex items-center">
+              <Inbox className="h-4 w-4 mr-2" />
+              Invitations
+              {hasInvites && (
+                <span className="ml-2 inline-flex items-center justify-center rounded-full text-xs px-2 py-0.5 bg-primary text-primary-foreground">
+                  {invites.length}
+                </span>
+              )}
+            </div>
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pending Invitations</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {!hasInvites && (
+              <p className="text-sm text-muted-foreground">No pending invitations.</p>
+            )}
+
+            {invites.map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <div className="text-sm font-medium">{inv.workspace.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    Role: {inv.role.toLowerCase()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={() => acceptInvite(inv.id)}>
+                    <Check className="h-4 w-4 mr-1" />
+                    Accept
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => declineInvite(inv.id)}>
+                    <X className="h-4 w-4 mr-1" />
+                    Decline
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {selectedWorkspace && (
         <div className="space-y-2">

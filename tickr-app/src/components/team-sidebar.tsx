@@ -92,11 +92,9 @@ export function TeamSidebar({ workspaceId, currentUserId, isOwner, isAdmin }: Te
     try {
       const response = await fetch(`/api/workspaces/${workspaceId}/members`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: inviteEmail,
+          email: inviteEmail.trim().toLowerCase(),
           role: inviteRole,
         }),
       })
@@ -104,8 +102,8 @@ export function TeamSidebar({ workspaceId, currentUserId, isOwner, isAdmin }: Te
       const data = await response.json()
 
       if (response.ok) {
-        toast.success('Member invited successfully')
-        setMembers([...members, data])
+        // send invitation only; do not mutate local members list
+        toast.success('Invitation sent')
         setInviteEmail('')
         setInviteRole('MEMBER')
         setInviteDialogOpen(false)
@@ -124,9 +122,7 @@ export function TeamSidebar({ workspaceId, currentUserId, isOwner, isAdmin }: Te
     try {
       const response = await fetch(`/api/workspaces/${workspaceId}/members/${memberId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       })
 

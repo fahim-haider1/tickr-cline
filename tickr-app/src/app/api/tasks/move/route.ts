@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
           select: {
             id: true,
             workspace: {
-              select: { id: true, ownerId: true, members: { select: { userId: true } } }
+              select: { id: true, ownerId: true, members: { select: { userId: true, role: true } } }
             }
           }
         }
@@ -45,12 +45,17 @@ export async function POST(req: NextRequest) {
     if (!task) return NextResponse.json({ error: "Task not found" }, { status: 404 })
 
     const workspace = task.column.workspace
-    const isMember =
-      workspace.ownerId === userId ||
-      workspace.members.some(m => m.userId === userId)
+    const me =
+      workspace.ownerId === userId
+        ? { role: "ADMIN" as const }
+        : workspace.members.find(m => m.userId === userId) || null
 
-    if (!isMember) {
+    if (!me) {
       return NextResponse.json({ error: "No access to this workspace" }, { status: 403 })
+    }
+    // 🔒 Viewers cannot move tasks
+    if (me.role === "VIEWER") {
+      return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 })
     }
 
     // Ensure destination column belongs to the same workspace (also need its name)

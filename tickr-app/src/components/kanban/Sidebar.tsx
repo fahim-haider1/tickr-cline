@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ChevronRight, MoreVertical, Plus } from "lucide-react";
 import type { WorkspaceUI } from "@/types/kanban";
+import { CreateWorkspaceDialog } from "@/components/workspace/CreateWorkspaceDialog";
 import { useCallback, useEffect, useState } from "react";
 
 type Invite = {
@@ -132,12 +133,22 @@ export default function Sidebar({
             </div>
           ))}
 
-          <Button
-            onClick={addWorkspace}
-            className="mt-2 w-full bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90"
-          >
-            {!collapsed ? "Add New Workspace" : <Plus className="w-4 h-4" />}
-          </Button>
+          {collapsed ? (
+            <Button
+              onClick={addWorkspace}
+              className="mt-2 w-full bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          ) : (
+            <div className="mt-2">
+              <CreateWorkspaceDialog
+                onWorkspaceCreated={(ws) => {
+                  if (ws?.id) setSelectedId(ws.id);
+                }}
+              />
+            </div>
+          )}
 
           {!collapsed && (
             <div className="pt-4">

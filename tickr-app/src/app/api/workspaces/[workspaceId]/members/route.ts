@@ -20,8 +20,8 @@ function canon(email: string) {
 }
 
 // GET /api/workspaces/:workspaceId/members
-export async function GET(_req: Request, context: any) {
-  const { workspaceId } = (context?.params || {}) as { workspaceId: string };
+export async function GET(_req: Request, context: { params: Promise<{ workspaceId: string }> }) {
+  const { workspaceId } = await context.params;
 
   // Ensure the workspace exists (and caller can at least see it)
   const authz = await requireWorkspaceAuth(workspaceId, "VIEWER");
@@ -51,8 +51,8 @@ export async function GET(_req: Request, context: any) {
 
 // POST /api/workspaces/:workspaceId/members
 // Create an invitation (ADMINs only)
-export async function POST(req: Request, context: any) {
-  const { workspaceId } = (context?.params || {}) as { workspaceId: string };
+export async function POST(req: Request, context: { params: Promise<{ workspaceId: string }> }) {
+  const { workspaceId } = await context.params;
 
   const authz = await requireWorkspaceAuth(workspaceId, "ADMIN");
   if ("error" in authz) {

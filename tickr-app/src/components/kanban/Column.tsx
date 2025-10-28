@@ -79,9 +79,9 @@ export default function Column({
             <Plus className="w-4 h-4" />
           </Button>
           <Button
-            variant="ghost"
+            variant="destructive"
             size="icon"
-            className="text-red-500 hover:text-red-600 h-7 w-7"
+            className="h-7 w-7"
             onClick={() => onDeleteColumn(column.id)}
             aria-label="Delete column"
           >

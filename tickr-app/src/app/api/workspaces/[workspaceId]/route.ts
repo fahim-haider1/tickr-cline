@@ -6,8 +6,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 
-export async function PATCH(req: Request, context: any) {
-  const { workspaceId } = context.params
+export async function PATCH(req: Request, context: { params: Promise<{ workspaceId: string }> }) {
+  const { workspaceId } = await context.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -26,8 +26,8 @@ export async function PATCH(req: Request, context: any) {
   return NextResponse.json(updated)
 }
 
-export async function DELETE(_req: Request, context: any) {
-  const { workspaceId } = context.params
+export async function DELETE(_req: Request, context: { params: Promise<{ workspaceId: string }> }) {
+  const { workspaceId } = await context.params
   const { userId } = await auth()
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

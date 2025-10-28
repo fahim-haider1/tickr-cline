@@ -12,14 +12,10 @@ export default function UserSync() {
     let ignore = false;
     (async () => {
       try {
-        // Try common sync endpoints; adjust to your backend route.
-        // Prefer one; others are fallbacks.
-        const endpoints = ["/api/user/sync", "/api/users/sync", "/api/sync-user"];
-        for (const url of endpoints) {
-          const res = await fetch(url, { method: "POST", credentials: "include" }).catch(() => null);
-          if (ignore) return;
-          if (res && (res.ok || res.status === 405)) break; // 405 if route expects GET, we stop anyway
-        }
+        // Use the app's sync endpoint only to avoid 404 noise in dev logs
+        const res = await fetch("/api/sync-user", { method: "POST", credentials: "include" }).catch(() => null);
+        if (ignore) return;
+        // no-op; endpoint is best-effort
       } catch {
         // ignore errors
       }

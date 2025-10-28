@@ -4,11 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import UserSync from "@/components/UserSync";
 
 import Sidebar from "@/components/kanban/Sidebar";
-import HeaderBar from "@/components/kanban/HeaderBar";
+import HeaderBar from "@/components/kanban/HeaderBarClean";
 import RightSidebar from "@/components/kanban/RightSidebar";
 import Column from "@/components/kanban/Column";
 
 import CreateTaskDialog from "@/components/kanban/dialogs/CreateTaskDialog";
+import CreateColumnDialog from "@/components/kanban/dialogs/CreateColumnDialog";
 import EditTaskDialog from "@/components/kanban/dialogs/EditTaskDialog";
 import FilterDialog from "@/components/kanban/dialogs/FilterDialog";
 
@@ -80,6 +81,7 @@ export default function DashboardPage() {
   // Dialogs & selection
   const [filterOpen, setFilterOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createColumnOpen, setCreateColumnOpen] = useState(false);
   const [createTargetColumnId, setCreateTargetColumnId] = useState<string | null>(null);
 
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -223,16 +225,12 @@ export default function DashboardPage() {
   };
 
   // ---------------------- Column actions ----------------------
-  const addColumn = async () => {
+  const addColumn = async (name?: string) => {
     if (!selectedWorkspaceId) return;
-    const name = window.prompt("Column name?");
-    if (!name?.trim()) return;
-    const res = await createColumn(selectedWorkspaceId, name.trim());
-    if (!res.ok) {
-      const msg = await res.text().catch(() => "");
-      alert(`Failed to create column: ${res.status} ${msg || ""}`);
-      return;
-    }
+    const finalName = (name ?? "").trim();
+    if (!finalName) return;
+    const res = await createColumn(selectedWorkspaceId, finalName);
+    if (!res.ok) return;
     await reloadColumns(selectedWorkspaceId);
   };
 
@@ -451,10 +449,7 @@ export default function DashboardPage() {
                 <FilterIcon className="w-4 h-4 mr-2" />
                 Filter
               </Button>
-              <Button
-                className="bg-primary text-primary-foreground hover:opacity-90"
-                onClick={addColumn}
-              >
+              <Button className="bg-primary text-primary-foreground hover:opacity-90" onClick={() => setCreateColumnOpen(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 Add Column
               </Button>
@@ -538,6 +533,15 @@ export default function DashboardPage() {
         filterCompletion={filterCompletion}
         setFilterCompletion={setFilterCompletion}
       />
+
+      <CreateColumnDialog
+        open={createColumnOpen}
+        onOpenChange={setCreateColumnOpen}
+        onCreate={async (n) => {
+          await addColumn(n);
+        }}
+      />
     </div>
   );
 }
+

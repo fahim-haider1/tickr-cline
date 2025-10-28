@@ -6,8 +6,8 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { requireWorkspaceAuth } from "@/lib/workspaceAuth"
 
-export async function PUT(req: Request, context: any) {
-  const { workspaceId, memberId } = context.params
+export async function PUT(req: Request, context: { params: Promise<{ workspaceId: string; memberId: string }> }) {
+  const { workspaceId, memberId } = await context.params
 
   const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
   if ("error" in authz) {
@@ -46,8 +46,8 @@ export async function PUT(req: Request, context: any) {
   return NextResponse.json(updated)
 }
 
-export async function DELETE(_req: Request, context: any) {
-  const { workspaceId, memberId } = context.params
+export async function DELETE(_req: Request, context: { params: Promise<{ workspaceId: string; memberId: string }> }) {
+  const { workspaceId, memberId } = await context.params
 
   const authz = await requireWorkspaceAuth(workspaceId, "ADMIN")
   if ("error" in authz) {

@@ -55,7 +55,8 @@ export default function TaskCard({ task, columnName, onOpenDetails, onDelete, on
           {task.description && <p className="text-sm text-muted-foreground mb-3">{task.description}</p>}
 
           <div className="mb-3">
-            <Progress value={pct} className={`h-2 w-full rounded-full ${pct === 100 ? "bg-success" : "bg-primary"}`} />
+            {/* Progress colors are handled inside the Progress component's Indicator. */}
+            <Progress value={pct} className="h-2 w-full rounded-full" />
             <span className="text-[10px] text-muted-foreground mt-1 block">
               {totalSubs > 0 ? `${doneSubs}/${totalSubs} subtasks` : "No subtasks"}
             </span>

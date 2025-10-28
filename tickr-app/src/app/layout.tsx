@@ -1,14 +1,21 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Outfit } from "next/font/google"
-import { Fira_Code } from "next/font/google"
+import { Molengo, Kalam, Fira_Code } from "next/font/google"
 import { ClerkProvider } from "@clerk/nextjs"
 import "./globals.css"
 
-const outfit = Outfit({
+const molengo = Molengo({
+  weight: "400",
   subsets: ["latin"],
   display: "swap",
   variable: "--font-sans",
+})
+
+const kalam = Kalam({
+  weight: ["300", "400", "700"],
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-serif",
 })
 
 const firaCode = Fira_Code({
@@ -28,7 +35,7 @@ export default function RootLayout({
   return (
     <ClerkProvider>
       <html lang="en" className="dark">
-        <body className={`font-sans ${outfit.variable} ${firaCode.variable} antialiased`}>
+        <body className={`font-sans ${molengo.variable} ${kalam.variable} ${firaCode.variable} antialiased`}>
           {children}
         </body>
       </html>

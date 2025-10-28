@@ -18,9 +18,9 @@ function canon(email: string) {
   return `${local}@${domain}`
 }
 
-export async function POST(_req: Request, context: any) {
+export async function POST(_req: Request, context: { params: Promise<{ inviteId: string }> }) {
   try {
-    const { inviteId } = context.params
+    const { inviteId } = await context.params
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 

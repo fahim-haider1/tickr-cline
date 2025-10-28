@@ -8,9 +8,13 @@ import { prisma } from "@/lib/prisma";
 
 type MoveBody = {
   taskId: string;
-  sourceColumnId: string;
-  destColumnId: string;
-  destIndex: number;
+  // server will derive sourceColumnId from DB to avoid client mismatch
+  sourceColumnId?: string;
+  destColumnId?: string;
+  destIndex?: number;
+  // accept alternative client field names
+  toColumnId?: string;
+  toIndex?: number;
 };
 
 export async function POST(req: Request, _context: any) {
@@ -22,13 +26,15 @@ export async function POST(req: Request, _context: any) {
 
     const body = (await req.json().catch(() => ({}))) as Partial<MoveBody>;
     const taskId = String(body.taskId || "");
-    const sourceColumnId = String(body.sourceColumnId || "");
-    const destColumnId = String(body.destColumnId || "");
+    // accept either dest* or to* naming
+    const destColumnId = String(body.destColumnId || body.toColumnId || "");
     const destIndex = Number.isFinite(body.destIndex as number)
       ? Number(body.destIndex)
+      : Number.isFinite(body.toIndex as number)
+      ? Number(body.toIndex)
       : 0;
 
-    if (!taskId || !sourceColumnId || !destColumnId || destIndex < 0) {
+    if (!taskId || !destColumnId || destIndex < 0) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
 
@@ -53,10 +59,11 @@ export async function POST(req: Request, _context: any) {
       },
     });
 
-    if (!task || task.columnId !== sourceColumnId) {
+    if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
+    const sourceColumnId = task.columnId;
     const ws = task.column.workspace;
     const me =
       ws.ownerId === userId
@@ -92,19 +99,25 @@ export async function POST(req: Request, _context: any) {
     await prisma.$transaction(async (tx) => {
       if (isSameColumn) {
         // Rebuild orders in the same column
-        const tasks = await tx.task.findMany({
+        let tasks = await tx.task.findMany({
           where: { columnId: sourceColumnId },
           orderBy: { order: "asc" },
           select: { id: true, order: true },
         });
 
-        const fromIndex = tasks.findIndex((t) => t.id === taskId);
-        if (fromIndex === -1) throw new Error("Task missing in source column");
-
-        // Remove and insert at new index (clamp)
-        const clampedDest = Math.max(0, Math.min(destIndex, tasks.length - 1));
-        const [moved] = tasks.splice(fromIndex, 1);
-        tasks.splice(clampedDest, 0, moved);
+        let fromIndex = tasks.findIndex((t) => t.id === taskId);
+        const clampedDest = Math.max(0, Math.min(destIndex, Math.max(tasks.length - 1, 0)));
+        if (fromIndex === -1) {
+          // Fallback: the task might have just moved concurrently; ensure it is represented
+          const current = await tx.task.findUnique({ where: { id: taskId }, select: { id: true } });
+          if (!current) return; // task vanished; treat as success
+          tasks = [...tasks];
+          tasks.splice(clampedDest, 0, { id: taskId, order: clampedDest });
+        } else {
+          // Remove and insert at new index (clamp)
+          const [moved] = tasks.splice(fromIndex, 1);
+          tasks.splice(clampedDest, 0, moved);
+        }
 
         // Write back new orders
         for (let i = 0; i < tasks.length; i++) {

@@ -103,7 +103,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ taskId: s
     const data: any = {}
 
     if (typeof body.title === "string") data.title = body.title.trim()
-    if (body.description !== undefined) data.description = body.description ?? null
+    // Map client "description" to DB field "subtitle"
+    if (body.description !== undefined) data.subtitle = body.description ?? null
     if (body.details !== undefined) data.details = body.details ?? null
     if (typeof body.priority === "string") {
       const up = String(body.priority).toUpperCase()

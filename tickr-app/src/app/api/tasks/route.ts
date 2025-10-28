@@ -12,8 +12,22 @@ type CreateTaskBody = {
   priority?: "LOW" | "MEDIUM" | "HIGH";
   dueDate?: string | null;
   assigneeId?: string | null;
-  subtasks?: string[]; // list of subtask titles
+  description?: string | null; // maps to DB "subtitle"
+  // Allow either list of strings or objects with { title }
+  subtasks?: Array<string | { title: string }>;
 };
+
+function parseDueDate(input?: string | null): Date | null {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+  const iso = s.length <= 10 ? `${s}T00:00:00.000Z` : s;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const t = d.getTime();
+  if (!Number.isFinite(t)) return null;
+  return d;
+}
 
 export async function POST(req: Request) {
   try {
@@ -26,8 +40,9 @@ export async function POST(req: Request) {
     const columnId = String(body.columnId || "");
     const rawTitle = typeof body.title === "string" ? body.title : "";
     const title = rawTitle.trim();
-    const dueDate = body.dueDate ? new Date(body.dueDate) : null;
+    const dueDate = parseDueDate(body.dueDate ?? null);
     const assigneeId = body.assigneeId || null;
+    const description = typeof body.description === "string" ? body.description.trim() : undefined;
     const subtasks = Array.isArray(body.subtasks) ? body.subtasks : [];
 
     if (!columnId || !title) {
@@ -80,13 +95,18 @@ export async function POST(req: Request) {
         order: nextOrder,
         dueDate,
         assigneeId,
-        // do NOT write non-existent fields (e.g., description/subtitle)
+        // map client description -> DB subtitle
+        subtitle: description ?? undefined,
         subtasks:
           subtasks.length > 0
             ? {
                 create: subtasks
-                  .filter((s) => typeof s === "string" && s.trim())
-                  .map((t, i) => ({ title: t.trim(), order: i })),
+                  .map((s, i) =>
+                    typeof s === "string"
+                      ? { title: s.trim(), order: i }
+                      : { title: String(s?.title ?? "").trim(), order: i }
+                  )
+                  .filter((x) => x.title)
               }
             : undefined,
       },
